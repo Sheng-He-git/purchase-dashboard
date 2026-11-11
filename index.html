@@ -1,0 +1,2226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>703 / 764 发票统计看板</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#fff; --bd:#e3e8ef; --tx:#1a2233; --dim:#6b7688;
+    --blue:#2563eb; --blue-bg:#eef4ff; --red:#d92b2b; --green:#0f9d58;
+    --amber:#f59e0b; --r:10px;
+    --sh:0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:22px 24px 60px;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1440px;margin:0 auto}
+
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;flex-wrap:wrap;margin-bottom:18px}
+  h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-.01em}
+  .sub{margin-top:4px;font-size:12.5px;color:var(--dim)}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select,button{
+    font:inherit;font-size:13px;padding:7px 12px;border-radius:7px;
+    border:1px solid var(--bd);background:var(--card);color:var(--tx);cursor:pointer;
+    transition:.15s;outline:none;
+  }
+  select:hover,button:hover{border-color:#c6d0dd;background:#fbfcfd}
+  select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+  button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  button.primary:hover{background:#1d4ed8;border-color:#1d4ed8}
+  label.fld{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dim)}
+
+  .files{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px}
+
+  .tabs{
+    display:flex;gap:4px;margin-bottom:18px;
+    border-bottom:2px solid var(--bd);
+  }
+  .tab{
+    border:none;background:none;cursor:pointer;
+    font:inherit;font-size:14px;font-weight:500;color:var(--dim);
+    padding:9px 18px;position:relative;transition:.15s;
+    border-radius:8px 8px 0 0;
+  }
+  .tab:hover{color:var(--tx);background:#eef2f7}
+  .tab.active{color:var(--blue);font-weight:600}
+  .tab.active::after{
+    content:"";position:absolute;left:0;right:0;bottom:-2px;height:2px;
+    background:var(--blue);
+  }
+  .chip{
+    display:inline-flex;align-items:center;gap:7px;padding:5px 12px;
+    border-radius:20px;font-size:12.5px;background:var(--card);border:1px solid var(--bd);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:#cbd5e1;flex:none}
+  .dot.ok{background:#16a34a}.dot.err{background:#dc2626}.dot.load{background:var(--amber)}
+
+  .kpi-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));margin-bottom:18px}
+  .kpi{
+    background:var(--card);border:1px solid var(--bd);border-radius:var(--r);
+    padding:14px 16px;box-shadow:var(--sh);
+  }
+  .kpi-l{font-size:12px;color:var(--dim);margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kpi-v{font-size:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.2}
+  .kpi-v small{font-size:12px;font-weight:500;color:var(--dim);margin-left:3px;letter-spacing:0}
+  .kpi-x{font-size:11.5px;color:var(--dim);margin-top:5px}
+  .kpi.hl{border-left:3px solid var(--blue)}
+  .kpi.warn{border-left:3px solid var(--amber)}
+  .kpi-grid-4col{grid-template-columns:repeat(4,1fr)}
+  .kpi-grid-3col{grid-template-columns:repeat(3,1fr)}
+  .age-card{
+    background:var(--card);border:1px solid var(--bd);border-radius:var(--r);
+    padding:12px 16px;box-shadow:var(--sh);
+  }
+  .age-tag{
+    display:inline-block;padding:2px 8px;border-radius:4px;
+    font-size:11.5px;font-weight:500;white-space:nowrap;
+  }
+
+  .sec{
+    background:var(--card);border:1px solid var(--bd);border-radius:var(--r);
+    box-shadow:var(--sh);margin-bottom:18px;overflow:hidden;
+  }
+  .sec-h{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:14px 18px;border-bottom:1px solid var(--bd);background:#fcfdfe;
+  }
+  .sec-t{font-size:15px;font-weight:600;display:flex;align-items:center;gap:9px}
+  .pill{font-size:11px;font-weight:500;padding:2px 9px;border-radius:5px;background:var(--blue-bg);color:var(--blue)}
+  .sec-m{font-size:12.5px;color:var(--dim)}
+  .sec-b{padding:16px 18px}
+
+  .tbl-wrap{overflow:auto;border-radius:8px;border:1px solid var(--bd);max-height:460px}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:760px}
+  thead th{
+    position:sticky;top:0;z-index:2;background:#f7f9fc;font-weight:600;color:#374151;
+    padding:9px 12px;border-bottom:1px solid var(--bd);white-space:nowrap;font-size:12.5px;
+  }
+  thead tr.grp th{text-align:center;border-bottom:1px solid var(--bd);background:#eef2f7}
+  thead th.num,tbody td.num,tfoot td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody td{padding:8px 12px;border-bottom:1px solid #f1f4f8;white-space:nowrap}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#fafcff}
+  tfoot td{padding:9px 12px;font-weight:600;background:#f7f9fc;border-top:1px solid var(--bd);font-variant-numeric:tabular-nums}
+  td.mute{color:#b6bfcc}
+  .rate{display:inline-block;min-width:46px}
+
+  .chart-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}
+  .chart-grid-4{display:grid;gap:12px;grid-template-columns:repeat(4,1fr)}
+  .chart-grid-2{display:grid;gap:14px;grid-template-columns:repeat(2,1fr)}
+  .cbox-tall{height:300px}
+  .cbox{border:1px solid var(--bd);border-radius:8px;padding:12px 12px 8px}
+  .cbox-t{font-size:12.5px;color:var(--dim);font-weight:500;margin-bottom:8px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cbox-c{position:relative;height:210px}
+
+  .bud-top{
+    display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end;
+    padding-bottom:13px;margin-bottom:13px;border-bottom:1px dashed var(--bd);
+  }
+  .bud-m{display:flex;flex-direction:column;gap:2px;min-width:96px}
+  .bud-m-l{font-size:11.5px;color:var(--dim);white-space:nowrap}
+  .bud-m-v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.25}
+  .bud-m-v.over{color:#dc2626}
+  .bud-m-v.good{color:var(--green)}
+  .bud-verdict{
+    flex:1 1 260px;font-size:12.5px;line-height:1.7;color:#92400e;
+    background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:8px 13px;
+  }
+  .bud-verdict.ok{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
+  .bud-verdict.bad{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+  .bud-q{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .bq{border:1px solid var(--bd);border-radius:9px;padding:12px 14px 13px;background:#fcfdfe}
+  .bq.now{border-color:#bfd3f8;background:#f8fbff;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+  .bq-h{display:flex;align-items:baseline;gap:7px;margin-bottom:9px}
+  .bq-t{font-size:14px;font-weight:600}
+  .bq-m{font-size:11px;color:var(--dim)}
+  .bq-clock{margin-left:auto;font-size:10.5px;color:#64748b;background:#eef2f7;
+            padding:1px 7px;border-radius:20px;white-space:nowrap}
+  .bq-clock.live{background:var(--blue-bg);color:var(--blue)}
+  .bq-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:11.5px;margin-bottom:4px}
+  .bq-row .k{color:var(--dim);white-space:nowrap}
+  .bq-row .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .bq-set{color:var(--dim);font-size:11.5px;font-style:normal;cursor:pointer;
+          border-bottom:1px dashed #cbd5e1}
+  .bq-bar{position:relative;height:8px;border-radius:4px;background:#eef2f7;margin:11px 0 9px}
+  .bq-fill{height:100%;border-radius:4px;background:var(--blue);transition:width .45s ease}
+  .bq-fill.warn{background:var(--amber)}
+  .bq-fill.over{background:#dc2626}
+  .bq-now{position:absolute;top:-4px;width:2px;height:16px;background:#334155;border-radius:1px}
+  .bq-now::before{content:"";position:absolute;top:-3px;left:-2px;width:6px;height:6px;border-radius:50%;background:#334155}
+  .bq-foot{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px}
+  .bq-rate{font-weight:600;font-variant-numeric:tabular-nums}
+  .bq-rate.warn{color:#b45309}.bq-rate.over{color:#dc2626}
+  .bq-left{color:var(--dim);font-variant-numeric:tabular-nums}
+
+  .mask{position:fixed;inset:0;background:rgba(15,23,42,.42);display:flex;
+        align-items:center;justify-content:center;z-index:999;padding:20px}
+  .modal{background:#fff;border-radius:12px;width:min(580px,100%);max-height:88vh;overflow:auto;
+         box-shadow:0 24px 64px rgba(16,24,40,.24)}
+  .modal-h{padding:16px 20px;border-bottom:1px solid var(--bd);font-size:15px;font-weight:600;
+           display:flex;justify-content:space-between;align-items:center}
+  .modal-x{border:none;background:none;font-size:20px;line-height:1;color:#9aa5b5;cursor:pointer;padding:0 4px}
+  .modal-x:hover{color:var(--tx);background:none}
+  .modal-b{padding:18px 20px}
+  .modal-f{padding:13px 20px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end;
+           gap:9px;background:#fcfdfe;border-radius:0 0 12px 12px}
+  .mrow{display:grid;grid-template-columns:84px 1fr;gap:10px;align-items:center;margin-bottom:9px}
+  .mrow>label{font-size:12.5px;color:var(--dim);text-align:right}
+  .mrow .unit{font-size:12px;color:var(--dim);margin-left:7px}
+  input[type=number],input[type=text]{
+    font:inherit;font-size:13px;padding:7px 11px;border:1px solid var(--bd);border-radius:7px;
+    background:#fff;color:var(--tx);outline:none;width:100%;font-variant-numeric:tabular-nums;
+  }
+  input[type=number]:focus,input[type=text]:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+  .mask-hint{font-size:12px;color:var(--dim);line-height:1.75;background:#f7f9fc;
+             border-radius:7px;padding:9px 13px;margin-top:12px}
+  .mask-hint b{color:#334155}
+  .diff{font-size:12px;margin-top:6px}
+  .diff.ok{color:var(--green)}.diff.bad{color:#dc2626}
+
+  .sup-wrap{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  .pie-box{flex:0 0 320px;height:280px;position:relative}
+  .rank{display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;
+        border-radius:4px;background:var(--blue-bg);color:var(--blue);
+        font-size:11px;font-weight:600;margin-right:7px}
+  .rank-o{background:#f1f4f8;color:#8b95a5}
+  .bar-bg{height:6px;border-radius:3px;background:#eef2f7;overflow:hidden}
+  .bar-fg{height:100%;border-radius:3px;background:var(--blue)}
+  .bar-rest{background:#cbd5e1}
+
+  body.readonly #btnBudget{display:none !important}
+  body.readonly .bq-set{pointer-events:none;border-bottom:none;cursor:default}
+
+  .bqg{display:flex;flex-direction:column;gap:8px;min-width:0}
+  .bqg-h{font-size:12px;font-weight:600;color:#475569;padding:0 2px}
+  .bqm{border:1px solid var(--bd);border-radius:9px;padding:10px 12px 11px;background:#fcfdfe}
+  .bqm.now{border-color:#bfd3f8;background:#f8fbff;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+  .bmg{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 12px}
+  .bmg-c label{display:block;font-size:11.5px;color:var(--dim);margin-bottom:4px}
+  tr.cc-row td{background:#fbfcfe;font-size:12.5px;color:#5b6472}
+  tr.cc-row.cc-hid{display:none}
+  tr.dept-row{cursor:pointer}
+  tr.dept-row:hover td{background:#f5f8ff}
+  .caret{display:inline-block;font-size:9px;color:#2563eb;margin-right:7px;transition:transform .15s}
+  .caret.closed{transform:rotate(-90deg)}
+  .fold-all{color:#2563eb;text-decoration:none;font-weight:600}
+  .fold-all:hover{text-decoration:underline}
+  tr.cc-row td:first-child{color:#6b7688}
+
+  .empty{text-align:center;padding:44px 20px;color:var(--dim);font-size:13px;line-height:2}
+  .empty code{background:#eef2f7;padding:2px 7px;border-radius:4px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;color:#334155}
+  .err{background:#fff5f5;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:12px 15px;font-size:12.5px;line-height:1.8}
+  .err b{display:block;margin-bottom:3px}
+  .hint{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:10px 14px;font-size:12.5px;margin-bottom:16px;line-height:1.7}
+
+  @media (max-width:1400px){
+    .chart-grid-4{grid-template-columns:repeat(2,1fr)}
+    .kpi-grid-4col{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:900px){
+    .chart-grid-4{grid-template-columns:1fr}
+    .kpi-grid-3col{grid-template-columns:1fr}
+    .pie-box{flex:1 1 100%;height:210px}
+  }
+  @media (max-width:700px){
+    body{padding:14px}
+    .kpi-grid{grid-template-columns:repeat(2,1fr)}
+    .chart-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1 id="ttl">发票统计看板</h1>
+      <div class="sub" id="sub">正在读取数据…</div>
+    </div>
+    <div class="toolbar">
+      <button id="btnPick" class="primary">选择 Excel 文件</button>
+      <label class="fld">Sub
+        <select id="selSub">
+          <option value="703">703</option>
+          <option value="764">764</option>
+          <option value="all">703 + 764</option>
+        </select>
+      </label>
+      <label class="fld">年份
+        <select id="selYear"><option value="all">全部</option></select>
+      </label>
+      <label class="fld">月份
+        <select id="selMonth"><option value="all">全部</option></select>
+      </label>
+      <button id="btnClear">清空</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-view="overview">经营概览</button>
+    <button class="tab" data-view="sub">月度 Sub</button>
+    <button class="tab" data-view="dept">部门</button>
+    <button class="tab" data-view="overdue">超期未收票</button>
+  </div>
+
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv" multiple hidden />
+
+  <div class="files" id="files"></div>
+  <div id="notice"></div>
+  <div id="content"></div>
+
+</div>
+
+<script>
+
+const CONFIG = {
+
+  files: [
+    "0-2026 JS PR List-Xiao Xia.xlsx",
+    "2026 JS PR List-MRD-Lin Zhu.xlsx",
+    "2026 JS PR List-MRD-Qian He.xlsx"
+  ],
+
+  requireMatchedNames: false,
+
+  sheet: null,
+
+  headerRow: 2,
+
+  col: {
+    date:      "C",
+    sub:       "M",
+    amount:    "U",
+    invoiceDate: "Z",
+    supplier:  "J",
+    dept:      "G",
+    po:        "E",
+    itemName:  "O",
+    category:  "L",
+    costCenter: "I"
+  },
+
+  targets: ["703", "764"],
+
+  supplierTopN: 5,
+
+  strictDate: true,
+
+  emptyTokens: ["", "-", "--", "—", "/", "无", "na", "n/a", "null", "none", "未收", "未收到"]
+};
+
+const BUDGET = {
+
+};
+
+const BUDGET_KEY = "cnc_quarter_budget_v1";
+
+const READONLY = false;
+
+const charts = [];
+let RAW = [];
+let FILE_STATE = [];
+
+const $ = id => document.getElementById(id);
+
+function colIdx(letter){
+  let n = 0;
+  for (const ch of letter.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+const I = {
+  date: colIdx(CONFIG.col.date),
+  sub: colIdx(CONFIG.col.sub),
+  amount: colIdx(CONFIG.col.amount),
+  inv: colIdx(CONFIG.col.invoiceDate),
+  supplier: colIdx(CONFIG.col.supplier || "J"),
+  dept: colIdx(CONFIG.col.dept || "G"),
+  po: colIdx(CONFIG.col.po || "E"),
+  itemName: colIdx(CONFIG.col.itemName || "O"),
+  category: colIdx(CONFIG.col.category || "L"),
+  costCenter: colIdx(CONFIG.col.costCenter || "I")
+};
+
+function serialToYMD(n){
+  if (!isFinite(n)) return null;
+
+  const utcMs = Math.round((n - 25569) * 86400000);
+  const d = new Date(utcMs);
+  if (isNaN(d.getTime())) return null;
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+}
+
+function parseYM(v){
+  if (v === null || v === undefined || v === "") return null;
+
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null;
+
+    return { y: v.getUTCFullYear(), m: v.getUTCMonth() + 1, d: v.getUTCDate() };
+  }
+
+  if (typeof v === "number" && isFinite(v)) {
+
+    if (v > 20000 && v < 80000) {
+      const r = serialToYMD(v);
+      if (r) return r;
+    }
+    const s = String(Math.trunc(v));
+
+    if (s.length === 8) {
+      const y = +s.slice(0,4), m = +s.slice(4,6), d = +s.slice(6,8);
+      if (y > 1900 && m >= 1 && m <= 12) return { y, m, d };
+    }
+
+    if (s.length === 6) {
+      const y = +s.slice(0,4), m = +s.slice(4,6);
+      if (y > 1900 && m >= 1 && m <= 12) return { y, m, d: 1 };
+    }
+    return null;
+  }
+
+  const s = String(v).trim();
+  if (!s) return null;
+
+  let mm = s.match(/^(\d{4})\s*[-/.年]\s*(\d{1,2})(?:\s*[-/.月]\s*(\d{1,2}))?/);
+  if (mm) {
+    const y = +mm[1], m = +mm[2], d = mm[3] ? +mm[3] : 1;
+    if (y > 1900 && m >= 1 && m <= 12) return { y, m, d };
+  }
+
+  mm = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (mm) {
+    const y = +mm[1], m = +mm[2], d = +mm[3];
+    if (m >= 1 && m <= 12) return { y, m, d };
+  }
+  mm = s.match(/^(\d{4})(\d{2})$/);
+  if (mm) {
+    const y = +mm[1], m = +mm[2];
+    if (m >= 1 && m <= 12) return { y, m, d: 1 };
+  }
+
+  return null;
+}
+
+function hasInvoice(v){
+  if (v === null || v === undefined) return false;
+
+  if (v instanceof Date) return !isNaN(v.getTime());
+
+  if (typeof v === "number" && isFinite(v)){
+
+    if (v > 20000 && v < 80000) return true;
+    const s = String(Math.trunc(v));
+
+    if (s.length === 8) {
+      const m = +s.slice(4,6);
+      if (m >= 1 && m <= 12) return true;
+    }
+    return false;
+  }
+
+  const s = String(v).trim();
+  if (!s) return false;
+
+  const low = s.toLowerCase().replace(/\s+/g, "");
+  if (CONFIG.emptyTokens.some(t => t && low === t)) return false;
+
+  if (!CONFIG.strictDate) return true;
+
+  return parseYM(v) !== null;
+}
+
+function parseNum(v){
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  const s = String(v).replace(/[¥￥$,\s]/g, "").replace(/[（(]/g, "-").replace(/[)）]/g, "");
+  const n = parseFloat(s);
+  return isFinite(n) ? n : 0;
+}
+
+function normSub(v){
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number") return String(Math.trunc(v));
+  return String(v).trim().replace(/\.0+$/, "");
+}
+
+function fmtMoney(v){
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  const a = Math.abs(v);
+  if (a >= 1e8) return "¥" + (v/1e8).toFixed(2) + " 亿";
+  if (a >= 1e4) return "¥" + (v/1e4).toFixed(2) + " 万";
+  return "¥" + Math.round(v).toLocaleString("zh-CN");
+}
+function fmtMoneyFull(v){
+  if (isNaN(v)) return "—";
+  return "¥" + v.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+}
+function fmtInt(v){
+  return Number(v).toLocaleString("zh-CN");
+}
+function fmtPct(v){
+  if (!isFinite(v)) return "—";
+  return (v * 100).toFixed(1) + "%";
+}
+
+function readFileBuffer(file){
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(new Error("读取本地文件失败"));
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+async function parseOneFile(file){
+  const buf = await readFileBuffer(file);
+  return parseWorkbook(buf, file.name);
+}
+
+function parseWorkbook(buf, url){
+
+  const wb = XLSX.read(buf, { type: "array", cellDates: false, cellNF: false, cellText: false });
+  const sheetName = CONFIG.sheet && wb.SheetNames.includes(CONFIG.sheet)
+    ? CONFIG.sheet : wb.SheetNames[0];
+  if (!sheetName) throw new Error("工作簿中没有工作表");
+
+  const ws = wb.Sheets[sheetName];
+  if (!ws) throw new Error("工作表 " + sheetName + " 为空");
+  if (!ws["!ref"]) throw new Error("工作表无数据范围");
+
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const startRow = range.s.r + (CONFIG.headerRow || 1);
+
+  const out = { rows: [], total: 0, matched: 0, noDate: 0, file: url, sheet: sheetName };
+
+  function cellVal(r, c){
+    if (c < 0) return null;
+    const addr = XLSX.utils.encode_cell({ r, c });
+    const cell = ws[addr];
+    if (!cell) return null;
+
+    if (cell.t === "n") return cell.v;
+    if (cell.t === "d") return cell.v;
+    if (cell.t === "b") return cell.v;
+    return cell.v !== undefined && cell.v !== null ? cell.v : null;
+  }
+
+  for (let r = startRow; r <= range.e.r; r++){
+    out.total++;
+
+    const subVal = normSub(cellVal(r, I.sub));
+    if (!CONFIG.targets.includes(subVal)) continue;
+    out.matched++;
+
+    const ym = parseYM(cellVal(r, I.date));
+    if (!ym){
+      out.noDate++;
+      continue;
+    }
+
+    out.rows.push({
+      sub: subVal,
+      y: ym.y,
+      m: ym.m,
+      amount: parseNum(cellVal(r, I.amount)),
+      invoiced: hasInvoice(cellVal(r, I.inv)),
+      supplier: (function(){
+        const s = cellVal(r, I.supplier);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      dept: (function(){
+        const s = cellVal(r, I.dept);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      po: (function(){
+        const s = cellVal(r, I.po);
+        if (s === null || s === undefined) return "";
+        return typeof s === "number" ? String(Math.trunc(s)) : String(s).trim();
+      })(),
+      itemName: (function(){
+        const s = cellVal(r, I.itemName);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      category: (function(){
+        const s = cellVal(r, I.category);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      costCenter: (function(){
+        const s = cellVal(r, I.costCenter);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      ymd: { y: ym.y, m: ym.m, d: ym.d },
+      src: url
+    });
+  }
+
+  return out;
+}
+
+function showWelcome(){
+  renderFileChips([]);
+
+  $("sub").textContent = "请先选择三个 Excel 文件";
+  $("content").innerHTML =
+    '<div class="sec"><div class="empty" style="padding:56px 20px">' +
+      '<div style="font-size:15px;font-weight:600;color:#374151">' +
+        '点击右上角「选择 Excel 文件」开始' +
+      '</div>' +
+    '</div></div>';
+}
+
+async function handleFiles(fileList){
+  const files = Array.from(fileList || []).filter(f =>
+    /\.(xlsx|xls|xlsm|csv)$/i.test(f.name)
+  );
+
+  if (!files.length){
+    $("notice").innerHTML =
+      '<div class="err"><b>没有选中可用的 Excel 文件</b>' +
+      '请选择后缀为 .xlsx / .xls / .xlsm 的文件。</div>';
+    return;
+  }
+
+  FILE_STATE = files.map(f => ({ name: f.name, state: "load" }));
+  renderFileChips(FILE_STATE);
+  $("notice").innerHTML = "";
+  $("content").innerHTML = '<div class="sec"><div class="empty">正在读取 ' + files.length + ' 个文件…</div></div>';
+
+  const results = [];
+  const errors = [];
+
+  for (let i = 0; i < files.length; i++){
+    const f = files[i];
+    try {
+      const r = await parseOneFile(f);
+      results.push(r);
+      FILE_STATE[i] = { name: f.name, state: "ok", matched: r.matched, rows: r.rows.length };
+    } catch (e){
+      FILE_STATE[i] = { name: f.name, state: "err", msg: e.message };
+      errors.push({ file: f.name, msg: e.message });
+    }
+    renderFileChips(FILE_STATE);
+  }
+
+  RAW = results.flatMap(r => r.rows);
+
+  const notes = [];
+
+  if (errors.length){
+    notes.push(
+      '<div class="err"><b>有 ' + errors.length + ' 个文件读取失败</b>' +
+      errors.map(e => '• <code>' + esc(e.file) + '</code> → ' + esc(e.msg)).join("<br>") +
+      '<br><br>常见原因：① 文件已损坏或被占用（先在 Excel 里关掉再试）；' +
+      '② 文件其实是 .csv 改了后缀；③ 文件加密需要密码。</div>'
+    );
+  }
+
+  $("notice").innerHTML = notes.join("");
+
+  buildYearOptions();
+  render();
+}
+
+function renderFileChips(list){
+  if (!list || !list.length){
+    $("files").innerHTML = '<span class="chip"><span class="dot"></span>尚未选择文件</span>';
+    return;
+  }
+  $("files").innerHTML = list.map(f => {
+    const cls = f.state === "ok" ? "ok" : f.state === "err" ? "err" : "load";
+    const tail = f.state === "ok" ? '（' + f.matched + " 行命中）"
+               : f.state === "err" ? "（读取失败）" : "（读取中）";
+    return '<span class="chip"><span class="dot ' + cls + '"></span>' +
+           esc(f.name) + " " + tail + "</span>";
+  }).join("");
+}
+
+function buildYearOptions(){
+  const years = [...new Set(RAW.map(r => r.y))].sort((a, b) => b - a);
+  const sel = $("selYear");
+  const cur = sel.value;
+  sel.innerHTML = '<option value="all">全部</option>' +
+    years.map(y => '<option value="' + y + '">' + y + '</option>').join("");
+  if (years.map(String).includes(cur)) sel.value = cur;
+}
+
+function buildMonthOptions(){
+  const sel = $("selMonth");
+  let html = '<option value="all">全部</option>';
+  for (let m = 1; m <= 12; m++){
+    html += '<option value="' + m + '">' + m + ' 月</option>';
+  }
+  sel.innerHTML = html;
+}
+
+function keyOf(r, dim, allYears){
+  if (dim === "single") return "TOTAL";
+  const mm = String(r.m).padStart(2, "0");
+  const q = "Q" + Math.ceil(r.m / 3);
+  if (dim === "month") return allYears ? (r.y + "-" + mm) : mm;
+  return allYears ? (r.y + "-" + q) : q;
+}
+
+function aggByDim(rows, dim, sub, allYears){
+  const map = new Map();
+  const list = rows.filter(r => r.sub === sub);
+
+  for (const r of list){
+    const k = keyOf(r, dim, allYears);
+    if (!map.has(k)) map.set(k, {
+      key: k, total: 0, invoiced: 0, cnt: 0, invCnt: 0
+    });
+    const o = map.get(k);
+    o.total += r.amount;
+    o.cnt++;
+    if (r.invoiced){ o.invoiced += r.amount; o.invCnt++; }
+  }
+
+  const arr = [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+  arr.forEach(o => {
+    o.pending = o.total - o.invoiced;
+    o.rate = o.cnt ? o.invCnt / o.cnt : 0;
+  });
+  return arr;
+}
+
+let currentView = "overview";
+
+function render(){
+  charts.forEach(c => { try { c.destroy(); } catch(e){} });
+  charts.length = 0;
+
+  const yearSel  = $("selYear").value;
+  const monthSel = $("selMonth").value;
+  const subSel   = $("selSub").value;
+
+  let rows = RAW;
+  if (yearSel !== "all")  rows = rows.filter(r => String(r.y) === yearSel);
+  if (monthSel !== "all") rows = rows.filter(r => String(r.m) === monthSel);
+
+  const subs = subSel === "all" ? ["703", "764"] : [subSel];
+  rows = rows.filter(r => subs.includes(r.sub));
+
+  if (!rows.length){
+    $("sub").textContent = "没有匹配的数据";
+    $("content").innerHTML = "";
+    return;
+  }
+
+  const dim = (monthSel !== "all") ? "single" : "month";
+  const allYears = (yearSel === "all");
+
+  if (currentView === "overview"){
+    renderOverviewView(rows, dim, allYears, subs);
+    return;
+  }
+  if (currentView === "dept"){
+    renderDeptView(rows, yearSel, monthSel, subs);
+    return;
+  }
+  if (currentView === "overdue"){
+    renderOverdueView(rows, subs);
+    return;
+  }
+
+  const data = {};
+  subs.forEach(t => data[t] = aggByDim(rows, dim, t, allYears));
+
+  const tot = { total: 0, invoiced: 0, cnt: 0, invCnt: 0 };
+  subs.forEach(t => data[t].forEach(o => {
+    tot.total += o.total; tot.invoiced += o.invoiced;
+    tot.cnt += o.cnt; tot.invCnt += o.invCnt;
+  }));
+  const pendingAmt = tot.total - tot.invoiced;
+  const rate = tot.cnt ? tot.invCnt / tot.cnt : 0;
+
+  const parts = [];
+  parts.push(yearSel === "all" ? "全部年份" : yearSel + " 年");
+  parts.push(monthSel === "all" ? "全部月份" : monthSel + " 月");
+  parts.push("Sub " + subs.join(" / "));
+  parts.push(fmtInt(tot.cnt) + " 张订单");
+  $("sub").textContent = parts.join(" · ");
+
+  $("content").innerHTML =
+    renderKpis(tot, pendingAmt, rate, "EPR税前总金额合计") +
+    renderTables(data, dim, subs) +
+    renderCharts(data, dim, subs, monthSel);
+}
+
+function renderDeptView(rows, yearSel, monthSel, subs){
+
+  const deptRows = rows.filter(r => r.dept && r.dept !== "");
+
+  if (!deptRows.length){
+    $("sub").textContent = "当前筛选下没有部门数据";
+    $("content").innerHTML =
+      '<div class="sec"><div class="empty">当前筛选范围内，G 列 Dept 都为空。<br>' +
+      '请确认 Excel 的 G 列（Dept）是否有值。</div></div>';
+    return;
+  }
+
+  const map = new Map();
+  const ccAgg = new Map();
+  const tot = { total: 0, invoiced: 0, cnt: 0, invCnt: 0 };
+  for (const r of deptRows){
+    if (!map.has(r.dept)) map.set(r.dept, {
+      name: r.dept, total: 0, invoiced: 0, pending: 0, cnt: 0, invCnt: 0
+    });
+    const o = map.get(r.dept);
+    o.total += r.amount;
+    o.cnt++;
+    if (r.invoiced){ o.invoiced += r.amount; o.invCnt++; }
+    tot.total += r.amount; tot.cnt++;
+    if (r.invoiced){ tot.invoiced += r.amount; tot.invCnt++; }
+
+    const cc = r.costCenter && r.costCenter !== "" ? r.costCenter : "（未填 Cost Center）";
+    {
+      if (!ccAgg.has(r.dept)) ccAgg.set(r.dept, new Map());
+      const cm = ccAgg.get(r.dept);
+      if (!cm.has(cc)) cm.set(cc, { amount: 0, invoiced: 0, cnt: 0, invCnt: 0 });
+      const co = cm.get(cc);
+      co.amount += r.amount; co.cnt++;
+      if (r.invoiced){ co.invoiced += r.amount; co.invCnt++; }
+    }
+  }
+
+  const list = [...map.values()].map(o => ({
+    ...o,
+    pending: o.total - o.invoiced,
+    rate: o.cnt ? o.invCnt / o.cnt : 0
+  })).sort((a, b) => b.total - a.total);
+
+  const pendingAmt = tot.total - tot.invoiced;
+  const rate = tot.cnt ? tot.invCnt / tot.cnt : 0;
+
+  const parts = [];
+  parts.push(yearSel === "all" ? "全部年份" : yearSel + " 年");
+  parts.push(monthSel === "all" ? "全部月份" : monthSel + " 月");
+  parts.push("Sub " + subs.join(" / "));
+  parts.push(list.length + " 个部门");
+  parts.push(fmtInt(tot.cnt) + " 张订单");
+  $("sub").textContent = parts.join(" · ");
+
+  $("content").innerHTML =
+    renderKpis(tot, pendingAmt, rate) +
+    renderDeptTable(list, ccAgg) +
+    renderDeptCharts(list);
+}
+
+function toggleDept(tr){
+  const i = tr.dataset.di;
+  const open = tr.querySelector(".caret").classList.toggle("closed");
+  document.querySelectorAll('tr.cc-row[data-p="' + i + '"]').forEach(r => r.classList.toggle("cc-hid", open));
+}
+
+function toggleAllDept(a){
+  const fold = a.textContent.indexOf("全部折叠") === 0;
+  document.querySelectorAll("tr.dept-row").forEach(tr => {
+    const caret = tr.querySelector(".caret");
+    if (fold && !caret.classList.contains("closed")) toggleDept(tr);
+    else if (!fold && caret.classList.contains("closed")) toggleDept(tr);
+  });
+  a.textContent = fold ? "全部展开" : "全部折叠";
+}
+
+function renderDeptTable(list, ccAgg){
+  const sumT  = list.reduce((s,o) => s + o.total, 0);
+  const sumI  = list.reduce((s,o) => s + o.invoiced, 0);
+  const sumC  = list.reduce((s,o) => s + o.cnt, 0);
+  const sumIC = list.reduce((s,o) => s + o.invCnt, 0);
+
+  const rowsHtml = list.map((o, i) => {
+    const deptRow =
+      '<tr class="dept-row" data-di="' + i + '" onclick="toggleDept(this)" title="点击折叠/展开成本中心明细">' +
+        '<td><span class="caret">▼</span><span class="rank">' + (i + 1) + '</span><b>' + esc(o.name) + '</b></td>' +
+        '<td class="num"><b>' + fmtMoneyFull(o.total) + '</b></td>' +
+        '<td class="num">' + fmtMoneyFull(o.invoiced) + '</td>' +
+        '<td class="num ' + (o.pending > 0 ? '' : 'mute') + '">' + fmtMoneyFull(o.pending) + '</td>' +
+        '<td class="num">' + fmtInt(o.cnt) + '</td>' +
+        '<td class="num">' + fmtInt(o.invCnt) + '</td>' +
+        '<td class="num"><span class="rate">' + fmtPct(o.rate) + '</span></td>' +
+        '<td style="width:110px"><div class="bar-bg"><div class="bar-fg" style="width:' +
+          (sumT ? (o.total / sumT * 100).toFixed(1) : 0) + '%"></div></div></td>' +
+      '</tr>';
+
+    const cm = ccAgg && ccAgg.get(o.name);
+    let ccRows = "";
+    if (cm && cm.size){
+      const ccs = [...cm.entries()].map(([name, v]) => ({ name, ...v }))
+        .sort((a, b) => b.amount - a.amount);
+      ccRows = ccs.map(c =>
+        '<tr class="cc-row" data-p="' + i + '">' +
+          '<td style="padding-left:38px">└ ' + esc(c.name) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(c.amount) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(c.invoiced) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(c.amount - c.invoiced) + '</td>' +
+          '<td class="num">' + fmtInt(c.cnt) + '</td>' +
+          '<td class="num">' + fmtInt(c.invCnt) + '</td>' +
+          '<td class="num">' + fmtPct(c.cnt ? c.invCnt / c.cnt : 0) + '</td>' +
+          '<td><div class="bar-bg"><div class="bar-fg bar-rest" style="width:' +
+            (sumT ? (c.amount / sumT * 100).toFixed(1) : 0) + '%"></div></div></td>' +
+        '</tr>').join("");
+    }
+    return deptRow + ccRows;
+  }).join("");
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">部门汇总</div>' +
+      '<div class="sec-m"><a href="javascript:void(0)" class="fold-all" onclick="toggleAllDept(this)">全部折叠</a></div>' +
+    '</div>' +
+    '<div class="sec-b">' +
+      '<div class="tbl-wrap" style="max-height:none"><table>' +
+        '<thead><tr>' +
+          '<th>部门</th>' +
+          '<th class="num">税前总金额</th>' +
+          '<th class="num">已收票金额</th>' +
+          '<th class="num">未收票金额</th>' +
+          '<th class="num">订单数</th>' +
+          '<th class="num">已收票订单</th>' +
+          '<th class="num">收票率</th>' +
+          '<th>占比</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody>' +
+        '<tfoot><tr>' +
+          '<td>合计</td>' +
+          '<td class="num">' + fmtMoneyFull(sumT) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(sumI) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(sumT - sumI) + '</td>' +
+          '<td class="num">' + fmtInt(sumC) + '</td>' +
+          '<td class="num">' + fmtInt(sumIC) + '</td>' +
+          '<td class="num">' + fmtPct(sumC ? sumIC / sumC : 0) + '</td>' +
+          '<td></td>' +
+        '</tr></tfoot>' +
+      '</table></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderDeptCharts(list){
+  const uid = Date.now();
+  const names = list.map(o => o.name);
+
+  const html =
+    '<div class="sec"><div class="sec-h">' +
+      '<div class="sec-t">部门图表</div>' +
+      '<div class="sec-m">金额对比与占比</div>' +
+    '</div><div class="sec-b"><div class="chart-grid-2">' +
+      '<div class="cbox"><div class="cbox-t">各部门金额对比</div>' +
+        '<div class="cbox-c cbox-tall"><canvas id="dBar' + uid + '"></canvas></div></div>' +
+      '<div class="cbox"><div class="cbox-t">部门金额占比</div>' +
+        '<div class="cbox-c cbox-tall"><canvas id="dPie' + uid + '"></canvas></div></div>' +
+    '</div></div></div>';
+
+  setTimeout(() => {
+    const barEl = document.getElementById("dBar" + uid);
+    if (barEl){
+      charts.push(new Chart(barEl, {
+        type: "bar",
+        data: {
+          labels: names,
+          datasets: [
+            { label: "已收票", data: list.map(o => o.invoiced), backgroundColor: "#2563eb", stack: "a", borderRadius: 2 },
+            { label: "未收票", data: list.map(o => o.pending),  backgroundColor: "#fbbf24", stack: "a", borderRadius: 2 }
+          ]
+        },
+        options: baseOpts(true)
+      }));
+    }
+
+    const pieEl = document.getElementById("dPie" + uid);
+    if (pieEl){
+      charts.push(new Chart(pieEl, pieConfig({
+        labels: names,
+        values: list.map(o => +o.total.toFixed(2)),
+        colors: ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6",
+                 "#f97316", "#6366f1", "#84cc16", "#ec4899", "#94a3b8"],
+        center: fmtMoney(list.reduce((s,o) => s + o.total, 0)),
+        centerSub: "采购总额"
+      })));
+    }
+  }, 0);
+
+  return html;
+}
+
+function isInternalSupplier(name){
+  if (!name) return false;
+  return /^[A-Za-z]/.test(name);
+}
+
+function renderOverviewView(rows, dim, allYears, subs){
+  if (!rows.length){
+    $("sub").textContent = "没有匹配的数据";
+    $("content").innerHTML = "";
+    return;
+  }
+
+  const now = new Date();
+
+  const tot = { total: 0, invoiced: 0, cnt: 0, invCnt: 0 };
+  let overdueAmt = 0, overdueCnt = 0;
+  for (const r of rows){
+    tot.total += r.amount;
+    tot.cnt++;
+    if (r.invoiced){ tot.invoiced += r.amount; tot.invCnt++; }
+    else {
+      const days = Math.floor((now.getTime() - Date.UTC(r.ymd.y, r.ymd.m - 1, r.ymd.d)) / 86400000);
+      if (days > OVERDUE_DAYS){ overdueAmt += r.amount; overdueCnt++; }
+    }
+  }
+  const pendingAmt = tot.total - tot.invoiced;
+
+  const parts = [];
+  parts.push(dim === "single" || $("selMonth").value !== "all"
+    ? $("selYear").value === "all" ? "全部年份" : $("selYear").value + " 年"
+    : ($("selYear").value === "all" ? "全部年份" : $("selYear").value + " 年"));
+  parts.push($("selMonth").value === "all" ? "全部月份" : $("selMonth").value + " 月");
+  parts.push("Sub " + subs.join(" / "));
+  parts.push(fmtInt(tot.cnt) + " 张订单");
+  $("sub").textContent = parts.join(" · ");
+
+  const kpiHtml =
+    '<div class="kpi-grid kpi-grid-4col">' +
+      '<div class="kpi hl"><div class="kpi-l">税前总金额合计</div>' +
+        '<div class="kpi-v">' + fmtMoney(tot.total) + '</div>' +
+        '<div class="kpi-x">' + fmtMoneyFull(tot.total) + '</div></div>' +
+      '<div class="kpi"><div class="kpi-l">已收票金额</div>' +
+        '<div class="kpi-v">' + fmtMoney(tot.invoiced) + '</div>' +
+        '<div class="kpi-x">占比 ' + fmtPct(tot.total ? tot.invoiced / tot.total : 0) + '</div></div>' +
+      '<div class="kpi warn"><div class="kpi-l">未收票金额</div>' +
+        '<div class="kpi-v">' + fmtMoney(pendingAmt) + '</div>' +
+        '<div class="kpi-x">' + fmtInt(tot.cnt - tot.invCnt) + ' 张未收票</div></div>' +
+      '<div class="kpi" style="border-left:3px solid #ef4444"><div class="kpi-l">超期未收票（&gt;3个月）</div>' +
+        '<div class="kpi-v">' + fmtMoney(overdueAmt) + '</div>' +
+        '<div class="kpi-x">' + fmtInt(overdueCnt) + ' 张 · 占未收票 ' +
+          fmtPct(pendingAmt ? overdueAmt / pendingAmt : 0) + '</div></div>' +
+    '</div>';
+
+  $("content").innerHTML =
+    kpiHtml +
+    ($("selYear").value === "all"
+      ? renderBudgetAllYears(subs)
+      : renderBudgetBlock($("selYear").value, subs)) +
+    renderSupplier(rows, subs) +
+    renderCategoryTrend(rows);
+
+  setTimeout(() => {
+    const sp = document.getElementById("supPie");
+    if (sp && window.__SUP__ && window.__SUP__.values.length){
+      const d = window.__SUP__;
+      charts.push(new Chart(sp, pieConfig({
+        labels: d.labels,
+        values: d.values,
+        colors: ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#94a3b8"],
+        center: fmtMoney(d.total),
+        centerSub: "采购总额"
+      })));
+    }
+  }, 0);
+}
+
+function renderCategoryTrend(rows){
+  const uid = Date.now();
+
+  const catTot = new Map();
+  for (const r of rows){
+    const c = r.category && r.category !== "" ? r.category : "（未填写）";
+    catTot.set(c, (catTot.get(c) || 0) + r.amount);
+  }
+  const topCats = [...catTot.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(e => e[0]);
+  const topSet = new Set(topCats);
+  const hasOther = [...catTot.keys()].length > topCats.length;
+
+  const monthMap = new Map();
+  for (const r of rows){
+    const mk = r.y + "-" + String(r.m).padStart(2, "0");
+    if (!monthMap.has(mk)) monthMap.set(mk, {});
+    const mo = monthMap.get(mk);
+    const c = r.category && r.category !== "" ? r.category : "（未填写）";
+    const key = topSet.has(c) ? c : (hasOther ? "其他" : c);
+    mo[key] = (mo[key] || 0) + r.amount;
+  }
+  const months = [...monthMap.keys()].sort();
+  const series = topCats.concat(hasOther ? ["其他"] : []);
+
+  const html =
+    '<div class="sec"><div class="sec-h">' +
+      '<div class="sec-t">月度采购趋势（按分类）</div>' +
+      '<div class="sec-m">分类 Top ' + topCats.length + (hasOther ? ' + 其他' : '') + ' · 共 ' + months.length + ' 个月</div>' +
+    '</div><div class="sec-b">' +
+      '<div style="height:340px"><canvas id="catTrend' + uid + '"></canvas></div>' +
+    '</div></div>';
+
+  setTimeout(() => {
+    const el = document.getElementById("catTrend" + uid);
+    if (!el) return;
+    const palette = ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6", "#94a3b8"];
+    charts.push(new Chart(el, {
+      type: "bar",
+      data: {
+        labels: months,
+        datasets: series.map((c, i) => ({
+          label: c,
+          data: months.map(m => +(monthMap.get(m)[c] || 0).toFixed(2)),
+          backgroundColor: palette[i % palette.length],
+          stack: "a",
+          borderRadius: 1,
+          maxBarThickness: 42
+        }))
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { position: "bottom", labels: { boxWidth: 9, boxHeight: 9, font: { size: 10.5 }, padding: 10 } },
+          tooltip: { callbacks: { label: ctx => ctx.dataset.label + "：" + fmtMoneyFull(ctx.parsed.y) } }
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, color: "#6b7688" } },
+          y: { stacked: true, beginAtZero: true, grid: { color: "#f0f3f7" },
+               ticks: { font: { size: 10 }, color: "#6b7688",
+                        callback: v => Math.abs(v) >= 1e4 ? (v/1e4) + "万" : v } }
+        }
+      }
+    }));
+  }, 0);
+
+  return html;
+}
+
+const OVERDUE_DAYS = 90;
+const BUCKETS = [
+  { key: "b1", label: "3-6 个月",   min: 90,  max: 180, color: "#f59e0b" },
+  { key: "b2", label: "6-12 个月",  min: 180, max: 365, color: "#ef4444" },
+  { key: "b3", label: "12 个月以上", min: 365, max: Infinity, color: "#7f1d1d" }
+];
+
+function daysBetween(ymd, now){
+  const ms = now.getTime() - Date.UTC(ymd.y, ymd.m - 1, ymd.d);
+  return Math.floor(ms / 86400000);
+}
+
+function bucketOf(days){
+  return BUCKETS.find(b => days >= b.min && days < b.max) || BUCKETS[BUCKETS.length - 1];
+}
+
+function renderOverdueView(rows, subs){
+  const now = new Date();
+  const todayYmd = { y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() };
+
+  const overdue = rows
+    .filter(r => !r.invoiced)
+    .map(r => ({ ...r, days: daysBetween(r.ymd, now) }))
+    .filter(r => r.days > OVERDUE_DAYS)
+    .sort((a, b) => b.days - a.days);
+
+  if (!overdue.length){
+    $("sub").textContent = "当前筛选下没有超期未收票";
+    $("content").innerHTML =
+      '<div class="sec"><div class="empty" style="padding:56px 20px">' +
+        '<div style="font-size:15px;font-weight:600;color:#0f9d58;margin-bottom:8px">✓ 没有超期订单</div>' +
+        '<div>当前筛选范围内，所有未收票订单都不足 3 个月。</div>' +
+      '</div></div>';
+    return;
+  }
+
+  const sumAmt = overdue.reduce((s, r) => s + r.amount, 0);
+  const maxDays = overdue[0].days;
+  const avgDays = Math.round(overdue.reduce((s, r) => s + r.days, 0) / overdue.length);
+
+  const bucketAgg = BUCKETS.map(b => {
+    const items = overdue.filter(r => bucketOf(r.days).key === b.key);
+    return {
+      ...b,
+      amount: items.reduce((s, r) => s + r.amount, 0),
+      cnt: items.length
+    };
+  });
+
+  const deptMap = new Map();
+  for (const r of overdue){
+    const d = r.dept && r.dept !== "" ? r.dept : "（无部门）";
+    if (!deptMap.has(d)) deptMap.set(d, 0);
+    deptMap.set(d, deptMap.get(d) + r.amount);
+  }
+  const deptList = [...deptMap.entries()]
+    .map(([name, amount]) => ({ name, amount }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const parts = [];
+  parts.push("Sub " + subs.join(" / "));
+  parts.push("按今天（" + todayYmd.y + "-" + String(todayYmd.m).padStart(2,"0") + "-" + String(todayYmd.d).padStart(2,"0") + "）起算");
+  parts.push("超期 " + fmtInt(overdue.length) + " 张 · " + fmtMoney(sumAmt));
+  $("sub").textContent = parts.join(" · ");
+
+  $("content").innerHTML =
+    renderOverdueKpis(sumAmt, overdue.length, maxDays, avgDays) +
+    renderOverdueBuckets(bucketAgg) +
+    renderOverdueCharts(bucketAgg, deptList) +
+    renderOverdueTable(overdue);
+}
+
+function renderOverdueKpis(sumAmt, cnt, maxDays, avgDays){
+  const cards = [
+    { l: "EPR 超期未收票总额", v: fmtMoney(sumAmt), x: "超过 3 个月未收票", cls: "warn" },
+    { l: "超期订单数", v: fmtInt(cnt), x: "张", cls: "" },
+    { l: "拖得最久", v: fmtInt(maxDays), x: "天", cls: "" },
+    { l: "平均拖了", v: fmtInt(avgDays), x: "天", cls: "" }
+  ];
+  return '<div class="kpi-grid kpi-grid-4col">' + cards.map(c =>
+    '<div class="kpi ' + c.cls + '">' +
+      '<div class="kpi-l">' + c.l + '</div>' +
+      '<div class="kpi-v">' + c.v + '</div>' +
+      '<div class="kpi-x">' + c.x + '</div>' +
+    '</div>').join("") + '</div>';
+}
+
+function renderOverdueBuckets(bucketAgg){
+  const total = bucketAgg.reduce((s, b) => s + b.amount, 0);
+  const cards = bucketAgg.map(b =>
+    '<div class="age-card" style="border-top:3px solid ' + b.color + '">' +
+      '<div class="kpi-l">' + b.label + '</div>' +
+      '<div class="kpi-v" style="font-size:19px">' + fmtMoney(b.amount) + '</div>' +
+      '<div class="kpi-x">' + fmtInt(b.cnt) + ' 张 · 占 ' +
+        fmtPct(total ? b.amount / total : 0) + '</div>' +
+    '</div>').join("");
+
+  return '<div class="kpi-grid kpi-grid-3col">' + cards + '</div>';
+}
+
+function renderOverdueCharts(bucketAgg, deptList){
+  const uid = Date.now();
+
+  const html =
+    '<div class="sec"><div class="sec-h">' +
+      '<div class="sec-t">超期分析图</div>' +
+      '<div class="sec-m">账龄分布与部门分布</div>' +
+    '</div><div class="sec-b"><div class="chart-grid-2">' +
+      '<div class="cbox"><div class="cbox-t">账龄分布（金额）</div>' +
+        '<div class="cbox-c cbox-tall"><canvas id="oBar' + uid + '"></canvas></div></div>' +
+      '<div class="cbox"><div class="cbox-t">部门超期金额占比</div>' +
+        '<div class="cbox-c cbox-tall"><canvas id="oPie' + uid + '"></canvas></div></div>' +
+    '</div></div></div>';
+
+  setTimeout(() => {
+    const barEl = document.getElementById("oBar" + uid);
+    if (barEl){
+      charts.push(new Chart(barEl, {
+        type: "bar",
+        data: {
+          labels: bucketAgg.map(b => b.label),
+          datasets: [{
+            label: "超期金额",
+            data: bucketAgg.map(b => b.amount),
+            backgroundColor: bucketAgg.map(b => b.color),
+            borderRadius: 3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: ctx => fmtMoneyFull(ctx.parsed.y) } }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 11 }, color: "#6b7688" } },
+            y: { beginAtZero: true, grid: { color: "#f0f3f7" },
+                 ticks: { font: { size: 10 }, color: "#6b7688",
+                          callback: v => Math.abs(v) >= 1e4 ? (v/1e4) + "万" : v } }
+          }
+        }
+      }));
+    }
+
+    const pieEl = document.getElementById("oPie" + uid);
+    if (pieEl && deptList.length){
+      charts.push(new Chart(pieEl, pieConfig({
+        labels: deptList.map(d => d.name),
+        values: deptList.map(d => +d.amount.toFixed(2)),
+        colors: ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6",
+                 "#f97316", "#6366f1", "#84cc16", "#ec4899", "#94a3b8"],
+        center: fmtMoney(deptList.reduce((s,d) => s + d.amount, 0)),
+        centerSub: "超期总额"
+      })));
+    }
+  }, 0);
+
+  return html;
+}
+
+function renderOverdueTable(overdue){
+  const rowsHtml = overdue.map(r => {
+    const b = bucketOf(r.days);
+    return '<tr>' +
+      '<td class="num">' + esc(r.po || "—") + '</td>' +
+      '<td>' + r.ymd.y + '-' + String(r.ymd.m).padStart(2,"0") + '-' + String(r.ymd.d).padStart(2,"0") + '</td>' +
+      '<td class="num"><b style="color:' + b.color + '">' + fmtInt(r.days) + ' 天</b></td>' +
+      '<td><span class="age-tag" style="background:' + b.color + '1a;color:' + b.color + '">' + b.label + '</span></td>' +
+      '<td>' + esc(r.dept || "—") + '</td>' +
+      '<td>' + esc(r.supplier || "—") + '</td>' +
+      '<td>' + esc(r.itemName || "—") + '</td>' +
+      '<td class="num">' + fmtMoneyFull(r.amount) + '</td>' +
+      '<td>Sub ' + esc(r.sub) + '</td>' +
+    '</tr>';
+  }).join("");
+
+  const sum = overdue.reduce((s, r) => s + r.amount, 0);
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">超期明细清单</div>' +
+      '<div class="sec-m">超期订单数量：' + fmtInt(overdue.length) + ' 张</div>' +
+    '</div>' +
+    '<div class="sec-b">' +
+      '<div class="tbl-wrap" style="max-height:520px"><table style="min-width:900px">' +
+        '<thead><tr>' +
+          '<th class="num">PO</th>' +
+          '<th>日期</th>' +
+          '<th class="num">已拖</th>' +
+          '<th>账龄</th>' +
+          '<th>部门</th>' +
+          '<th>供应商</th>' +
+          '<th>物品名称</th>' +
+          '<th class="num">金额</th>' +
+          '<th>Sub</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody>' +
+        '<tfoot><tr>' +
+          '<td colspan="7">合计</td>' +
+          '<td class="num">' + fmtMoneyFull(sum) + '</td>' +
+          '<td></td>' +
+        '</tr></tfoot>' +
+      '</table></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderKpis(tot, pendingAmt, rate, totalLabel){
+  const cards = [
+    { l: totalLabel || "税前总金额合计", v: fmtMoney(tot.total), x: fmtMoneyFull(tot.total), cls: "hl" },
+    { l: "已收票金额", v: fmtMoney(tot.invoiced), x: "占比 " + fmtPct(tot.total ? tot.invoiced/tot.total : 0), cls: "" },
+    { l: "未收票金额", v: fmtMoney(pendingAmt), x: "待跟进", cls: "warn" },
+    { l: "订单总数", v: fmtInt(tot.cnt), x: "张", cls: "" },
+    { l: "已收票订单", v: fmtInt(tot.invCnt), x: "张", cls: "" },
+    { l: "收票率", v: fmtPct(rate), x: fmtInt(tot.cnt - tot.invCnt) + " 张未收票", cls: "" }
+  ];
+  return '<div class="kpi-grid">' + cards.map(c =>
+    '<div class="kpi ' + c.cls + '">' +
+      '<div class="kpi-l">' + c.l + '</div>' +
+      '<div class="kpi-v">' + c.v + '</div>' +
+      '<div class="kpi-x">' + c.x + '</div>' +
+    '</div>').join("") + '</div>';
+}
+
+function renderSupplier(rows, subs){
+  const N = CONFIG.supplierTopN || 5;
+
+  const map = new Map();
+  let grand = 0;
+  for (const r of rows){
+    const name = r.supplier && r.supplier !== "" ? r.supplier : "（未填写）";
+    if (!map.has(name)) map.set(name, { name, amount: 0, cnt: 0, invCnt: 0 });
+    const o = map.get(name);
+    o.amount += r.amount;
+    o.cnt++;
+    if (r.invoiced) o.invCnt++;
+    grand += r.amount;
+  }
+
+  const list = [...map.values()].sort((a, b) => b.amount - a.amount);
+
+  if (!list.length || grand <= 0){
+    return '<div class="sec"><div class="sec-h"><div class="sec-t">供应商集中度</div>' +
+      '<div class="sec-m">无数据</div></div>' +
+      '<div class="sec-b"><div class="empty">当前筛选下没有供应商数据。</div></div></div>';
+  }
+
+  const top = list.slice(0, N);
+  const restAmount = list.slice(N).reduce((s, o) => s + o.amount, 0);
+  const restCnt = list.length - top.length;
+  const topShare = grand ? top.reduce((s, o) => s + o.amount, 0) / grand : 0;
+
+  const rowHtml = top.map((o, i) => {
+    const pct = grand ? o.amount / grand : 0;
+    return '<tr>' +
+      '<td><span class="rank">' + (i + 1) + '</span>' + esc(o.name) + '</td>' +
+      '<td class="num">' + fmtMoneyFull(o.amount) + '</td>' +
+      '<td class="num"><b>' + fmtPct(pct) + '</b></td>' +
+      '<td class="num">' + fmtInt(o.cnt) + '</td>' +
+      '<td class="num">' + fmtPct(o.cnt ? o.invCnt / o.cnt : 0) + '</td>' +
+      '<td style="width:110px"><div class="bar-bg"><div class="bar-fg" style="width:' +
+        (pct * 100).toFixed(1) + '%"></div></div></td>' +
+    '</tr>';
+  }).join("");
+
+  const restPct = grand ? restAmount / grand : 0;
+
+  window.__SUP__ = {
+    labels: top.map(o => o.name).concat(restCnt > 0 ? ["其余 " + restCnt + " 家"] : []),
+    values: top.map(o => +o.amount.toFixed(2)).concat(restCnt > 0 ? [+restAmount.toFixed(2)] : []),
+    total: +grand.toFixed(2)
+  };
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">供应商集中度</div>' +
+      '<div class="sec-m">共 ' + list.length + ' 家 · 前 ' + Math.min(N, list.length) +
+        ' 家占 <b>' + fmtPct(topShare) + '</b></div>' +
+    '</div>' +
+    '<div class="sec-b">' +
+      '<div class="sup-wrap">' +
+        '<div class="tbl-wrap" style="max-height:none;flex:1 1 420px">' +
+          '<table style="min-width:520px">' +
+            '<thead><tr>' +
+              '<th>供应商</th>' +
+              '<th class="num">采购额</th>' +
+              '<th class="num">占比</th>' +
+              '<th class="num">订单数</th>' +
+              '<th class="num">收票率</th>' +
+              '<th>占比图</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rowHtml +
+              (restCnt > 0
+                ? '<tr><td><span class="rank rank-o">…</span>其余 ' + restCnt + ' 家</td>' +
+                  '<td class="num">' + fmtMoneyFull(restAmount) + '</td>' +
+                  '<td class="num"><b>' + fmtPct(restPct) + '</b></td>' +
+                  '<td class="num">—</td><td class="num">—</td>' +
+                  '<td><div class="bar-bg"><div class="bar-fg bar-rest" style="width:' +
+                    (restPct * 100).toFixed(1) + '%"></div></div></td></tr>'
+                : '') +
+            '</tbody>' +
+            '<tfoot><tr><td>合计</td><td class="num">' + fmtMoneyFull(grand) +
+              '</td><td class="num">100.0%</td><td class="num">' +
+              fmtInt(list.reduce((s, o) => s + o.cnt, 0)) + '</td>' +
+              '<td class="num">—</td><td></td></tr></tfoot>' +
+          '</table>' +
+        '</div>' +
+        '<div class="pie-box"><canvas id="supPie"></canvas></div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function dimLabel(k, dim){
+  if (dim === "single") return "本月合计";
+  if (k.includes("-")){
+    const parts = k.split("-");
+    const y = parts[0], rest = parts[1];
+    if (dim === "month") return y + "-" + rest + " 月";
+    return y + " " + rest.replace("Q", "第 ") + " 季度";
+  }
+  if (dim === "month") return k + " 月";
+  return k.replace("Q", "第 ") + " 季度";
+}
+
+function renderTables(data, dim, subs){
+  const isSingle = (dim === "single");
+  const unit = isSingle ? "汇总" : (dim === "month" ? "月份" : "季度");
+  let html = "";
+
+  subs.forEach(t => {
+    const arr = data[t];
+    if (!arr.length) {
+      html += '<div class="sec"><div class="sec-h"><div class="sec-t">' +
+        '<span class="pill">Sub ' + t + '</span> 发票统计</div><div class="sec-m">无数据</div></div>' +
+        '<div class="sec-b"><div class="empty">该 Sub 在当前筛选下没有记录。</div></div></div>';
+      return;
+    }
+
+    const sumT = arr.reduce((s,o) => s + o.total, 0);
+    const sumI = arr.reduce((s,o) => s + o.invoiced, 0);
+    const sumP = sumT - sumI;
+    const sumC = arr.reduce((s,o) => s + o.cnt, 0);
+    const sumIC = arr.reduce((s,o) => s + o.invCnt, 0);
+
+    let rowsHtml = arr.map(o =>
+      '<tr>' +
+        '<td>' + dimLabel(o.key, dim) + '</td>' +
+        '<td class="num">' + fmtMoneyFull(o.total) + '</td>' +
+        '<td class="num">' + fmtMoneyFull(o.invoiced) + '</td>' +
+        '<td class="num ' + (o.pending > 0 ? '' : 'mute') + '">' + fmtMoneyFull(o.pending) + '</td>' +
+        '<td class="num">' + fmtInt(o.cnt) + '</td>' +
+        '<td class="num">' + fmtInt(o.invCnt) + '</td>' +
+        '<td class="num"><span class="rate">' + fmtPct(o.rate) + '</span></td>' +
+      '</tr>').join("");
+
+    html +=
+      '<div class="sec">' +
+        '<div class="sec-h">' +
+          '<div class="sec-t"><span class="pill">Sub ' + t + '</span> 发票统计</div>' +
+          '<div class="sec-m">' +
+            (isSingle ? '当前筛选汇总' : arr.length + ' 个' + unit) +
+            ' · 合计 ' + fmtMoneyFull(sumT) + '</div>' +
+        '</div>' +
+        '<div class="sec-b">' +
+          '<div class="tbl-wrap"><table>' +
+            '<thead><tr>' +
+              '<th>' + unit + '</th>' +
+              '<th class="num">税前总金额</th>' +
+              '<th class="num">已收票金额</th>' +
+              '<th class="num">未收票金额</th>' +
+              '<th class="num">订单数</th>' +
+              '<th class="num">已收票订单</th>' +
+              '<th class="num">收票率</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rowsHtml + '</tbody>' +
+            '<tfoot><tr>' +
+              '<td>合计</td>' +
+              '<td class="num">' + fmtMoneyFull(sumT) + '</td>' +
+              '<td class="num">' + fmtMoneyFull(sumI) + '</td>' +
+              '<td class="num">' + fmtMoneyFull(sumP) + '</td>' +
+              '<td class="num">' + fmtInt(sumC) + '</td>' +
+              '<td class="num">' + fmtInt(sumIC) + '</td>' +
+              '<td class="num">' + fmtPct(sumC ? sumIC / sumC : 0) + '</td>' +
+            '</tr></tfoot>' +
+          '</table></div>' +
+        '</div>' +
+      '</div>';
+  });
+
+  return html;
+}
+
+function renderCharts(data, dim, subs, monthSel){
+  const isSingle = (dim === "single");
+  const uid = Date.now();
+  const items = [];
+
+  if (isSingle){
+
+    subs.forEach((t, idx) => {
+      const o = data[t][0];
+      if (!o) return;
+      items.push({
+        id: "pA" + uid + "_" + idx,
+        title: "Sub " + t + " · 金额构成",
+        kind: "pie",
+        payload: {
+          labels: ["已收票", "未收票"],
+          values: [o.invoiced, o.pending],
+          colors: ["#2563eb", "#fbbf24"],
+          center: fmtMoney(o.total),
+          centerSub: "总额"
+        }
+      });
+      items.push({
+        id: "pB" + uid + "_" + idx,
+        title: "Sub " + t + " · 订单构成",
+        kind: "pie",
+        payload: {
+          labels: ["已收票", "未收票"],
+          values: [o.invCnt, o.cnt - o.invCnt],
+          colors: ["#0f9d58", "#cbd5e1"],
+          center: fmtPct(o.rate),
+          centerSub: "收票率"
+        }
+      });
+    });
+  } else {
+
+    let sumI = 0, sumP = 0;
+    subs.forEach(t => data[t].forEach(o => { sumI += o.invoiced; sumP += o.pending; }));
+    items.push({
+      id: "pAll" + uid,
+      title: "合计 · 金额构成",
+      kind: "pie",
+      payload: {
+        labels: ["已收票", "未收票"],
+        values: [sumI, sumP],
+        colors: ["#2563eb", "#fbbf24"],
+        center: fmtMoney(sumI + sumP),
+        centerSub: "总额"
+      }
+    });
+
+    subs.forEach((t, idx) => {
+      let i = 0, c = 0, n = 0;
+      data[t].forEach(o => { i += o.invCnt; c += o.cnt; n += o.cnt - o.invCnt; });
+      if (!c) return;
+      items.push({
+        id: "pR" + uid + "_" + idx,
+        title: "Sub " + t + " · 订单构成",
+        kind: "pie",
+        payload: {
+          labels: ["已收票", "未收票"],
+          values: [i, n],
+          colors: ["#0f9d58", "#cbd5e1"],
+          center: fmtPct(c ? i / c : 0),
+          centerSub: "收票率"
+        }
+      });
+    });
+
+    const labels = [...new Set(subs.flatMap(t => data[t].map(o => o.key)))].sort();
+    subs.forEach((t, idx) => {
+      const m = new Map(data[t].map(o => [o.key, o]));
+      const s = labels.map(k => {
+        const o = m.get(k);
+        return { invoiced: o ? o.invoiced : 0, pending: o ? o.pending : 0 };
+      });
+      items.push({
+        id: "bT" + uid + "_" + idx,
+        title: "Sub " + t + " · 月度金额趋势",
+        kind: "bar",
+        payload: {
+          labels: labels.map(k => dimLabel(k, dim)),
+          invoiced: s.map(o => o.invoiced),
+          pending: s.map(o => o.pending)
+        }
+      });
+    });
+  }
+
+  let html = '<div class="sec"><div class="sec-h">' +
+    '<div class="sec-t">图表</div>' +
+    '<div class="sec-m">' + (isSingle ? "当前月份构成" : "整体构成与趋势") +
+    '</div></div><div class="sec-b"><div class="chart-grid-4">';
+
+  items.forEach(it => {
+    html += '<div class="cbox"><div class="cbox-t">' + it.title + '</div>' +
+      '<div class="cbox-c"><canvas id="' + it.id + '"></canvas></div></div>';
+  });
+
+  html += '</div></div></div>';
+
+  setTimeout(() => {
+    items.forEach(it => {
+      const el = document.getElementById(it.id);
+      if (!el) return;
+      if (it.kind === "pie"){
+        charts.push(new Chart(el, pieConfig(it.payload)));
+      } else {
+        charts.push(new Chart(el, barConfig(it.payload)));
+      }
+    });
+
+    const sp = document.getElementById("supPie");
+    if (sp && window.__SUP__ && window.__SUP__.values.length){
+      const d = window.__SUP__;
+      charts.push(new Chart(sp, pieConfig({
+        labels: d.labels,
+        values: d.values,
+        colors: ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#94a3b8"],
+        center: fmtMoney(d.total),
+        centerSub: "采购总额"
+      })));
+    }
+  }, 0);
+
+  return html;
+}
+
+function pieConfig(p){
+  return {
+    type: "doughnut",
+    data: {
+      labels: p.labels,
+      datasets: [{
+        data: p.values,
+        backgroundColor: p.colors,
+        borderColor: "#fff",
+        borderWidth: 2,
+        hoverOffset: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "62%",
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { boxWidth: 9, boxHeight: 9, font: { size: 10.5 }, padding: 8 }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const pct = total ? (ctx.parsed / total * 100).toFixed(1) : 0;
+              return ctx.label + "：" + fmtMoneyFull(ctx.parsed) + "（" + pct + "%）";
+            }
+          }
+        }
+      }
+    },
+    plugins: [{
+      id: "centerText",
+      afterDraw(chart){
+        const { ctx, chartArea } = chart;
+        if (!chartArea) return;
+        const cx = (chartArea.left + chartArea.right) / 2;
+        const cy = (chartArea.top + chartArea.bottom) / 2;
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#1a2233";
+        ctx.font = "600 15px -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif";
+        ctx.fillText(p.center, cx, cy - 6);
+        ctx.fillStyle = "#8b95a5";
+        ctx.font = "400 10.5px -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif";
+        ctx.fillText(p.centerSub, cx, cy + 11);
+        ctx.restore();
+      }
+    }]
+  };
+}
+
+function barConfig(p){
+  return {
+    type: "bar",
+    data: {
+      labels: p.labels,
+      datasets: [
+        { label: "已收票", data: p.invoiced, backgroundColor: "#2563eb", stack: "a", borderRadius: 2 },
+        { label: "未收票", data: p.pending,  backgroundColor: "#fbbf24", stack: "a", borderRadius: 2 }
+      ]
+    },
+    options: baseOpts(true)
+  };
+}
+
+function baseOpts(money){
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { position: "bottom", labels: { boxWidth: 10, boxHeight: 10, font: { size: 11 }, padding: 12 } },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y;
+            return ctx.dataset.label + "：" + (money ? fmtMoneyFull(v) : fmtInt(v) + " 张");
+          }
+        }
+      }
+    },
+    scales: {
+      x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, color: "#6b7688" } },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        grid: { color: "#f0f3f7" },
+        ticks: {
+          font: { size: 11 }, color: "#6b7688",
+          callback: v => money ? (Math.abs(v) >= 1e4 ? (v/1e4) + "万" : v) : v
+        }
+      }
+    }
+  };
+}
+
+function esc(s){
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+let __budMem = {};
+
+function numOrNull(v){
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+
+function parseAmt(s){
+  if (s === null || s === undefined) return null;
+  let t = String(s).replace(/[，,\s¥￥]/g, "");
+  if (t === "") return null;
+  let mul = 1;
+  if (/万$/.test(t)){ mul = 1e4; t = t.replace(/万$/, ""); }
+  else if (/亿$/.test(t)){ mul = 1e8; t = t.replace(/亿$/, ""); }
+  const n = parseFloat(t);
+  return isFinite(n) ? Math.round(n * mul) : null;
+}
+
+function loadBudget(){
+  let obj = null;
+  try {
+    const raw = localStorage.getItem(BUDGET_KEY);
+    if (raw) obj = JSON.parse(raw);
+  } catch(e){ obj = null; }
+  if (!obj || typeof obj !== "object") obj = __budMem || {};
+
+  for (const y in BUDGET){
+    if (!obj[y] && BUDGET[y]) obj[y] = JSON.parse(JSON.stringify(BUDGET[y]));
+  }
+
+  const out = {};
+  for (const y in obj){
+    const b = obj[y] || {};
+    let m = [0,1,2,3,4,5,6,7,8,9,10,11].map(i => numOrNull((b.m || [])[i]));
+    if (m.every(v => v == null) && Array.isArray(b.q)){
+      const qv = [0,1,2,3].map(i => numOrNull(b.q[i]));
+      if (qv.some(v => v != null)){
+        m = qv.reduce((acc, v) => acc.concat([v, v, v]), []);
+      }
+    }
+    out[y] = { total: numOrNull(b.total), m: m };
+  }
+  return out;
+}
+
+function saveBudget(obj){
+  __budMem = obj;
+  try { localStorage.setItem(BUDGET_KEY, JSON.stringify(obj)); } catch(e){}
+}
+
+function getBudget(year){
+  const all = loadBudget();
+  return all[String(year)] ||
+    { total: null, m: [null,null,null,null,null,null,null,null,null,null,null,null] };
+}
+
+function pickBudgetYear(){
+  const sel = $("selYear").value;
+  if (sel && sel !== "all") return sel;
+  let mx = null;
+  for (const r of RAW){ if (mx === null || r.y > mx) mx = r.y; }
+  return mx === null ? null : String(mx);
+}
+
+function monthProgress(year, mi){
+  const y = +year;
+  const s = Date.UTC(y, mi, 1);
+  const e = Date.UTC(y, mi + 1, 1);
+  const t = Date.now();
+  if (t <= s) return 0;
+  if (t >= e) return 1;
+  return (t - s) / (e - s);
+}
+
+function yearProgress(year){
+  const y = +year;
+  const s = Date.UTC(y, 0, 1);
+  const e = Date.UTC(y + 1, 0, 1);
+  const t = Date.now();
+  if (t <= s) return 0;
+  if (t >= e) return 1;
+  return (t - s) / (e - s);
+}
+
+function fmtGap(v){
+  return v >= 0 ? "剩余 " + fmtMoney(v) : "超支 " + fmtMoney(-v);
+}
+
+function budgetVerdict(budTotal, used, tpY, ro){
+  if (budTotal == null || budTotal <= 0){
+    return { cls: "", txt: ro
+      ? "尚未设置年度预算。当前页面为只读模式，请由维护人在源文件中配置预算。"
+      : "尚未设置年度预算。点右上角「设置预算」填入金额后，这里会自动计算执行率、剩余额度和超支预警。" };
+  }
+  const r = used / budTotal;
+  if (r > 1){
+    return { cls: "bad", txt: "已超出年度预算 " + fmtMoney(used - budTotal) + "（" + fmtPct(r - 1) + "）。建议立即冻结非必要采购，或启动预算追加审批。" };
+  }
+  if (tpY < 0.05){
+    return { cls: "", txt: "年度刚开始（时间进度 " + fmtPct(tpY) + "），样本量偏小，暂不做全年趋势预测。" };
+  }
+  const pp = Math.abs(r - tpY) * 100;
+  const forecast = used / tpY;
+  const over = forecast - budTotal;
+  if (r > tpY + 0.03){
+    return { cls: "bad", txt: "快于时间进度 " + pp.toFixed(1) + " 个百分点。按当前节奏，年末将支出 " + fmtMoney(forecast) + "，超出预算约 " + fmtMoney(over) + "。" };
+  }
+  if (r < tpY - 0.03){
+    return { cls: "ok", txt: "慢于时间进度 " + pp.toFixed(1) + " 个百分点。按当前节奏，年末将支出 " + fmtMoney(forecast) + "，预计结余 " + fmtMoney(-over) + "。" };
+  }
+  return { cls: "ok", txt: "进度与时间基本持平（相差 " + pp.toFixed(1) + " 个百分点）。按当前节奏，年末支出约 " + fmtMoney(forecast) + "，在预算范围内。" };
+}
+
+function renderBudgetBlock(year, subs){
+  if (!year) return "";
+
+  const yRows = RAW.filter(r => String(r.y) === String(year) && subs.includes(r.sub));
+
+  const mStat = [0,1,2,3,4,5,6,7,8,9,10,11].map(() => ({ used: 0, inv: 0, cnt: 0, invCnt: 0 }));
+  for (const r of yRows){
+    const mi = r.m - 1;
+    if (mi < 0 || mi > 11) continue;
+    const a = mStat[mi];
+    a.used += r.amount; a.cnt++;
+    if (r.invoiced){ a.inv += r.amount; a.invCnt++; }
+  }
+
+  const bud = getBudget(year);
+  const mBud = bud.m;
+  const usedTotal = mStat.reduce((s, a) => s + a.used, 0);
+  const mSum = mBud.every(v => v == null) ? null : mBud.reduce((s, v) => s + (v || 0), 0);
+  const budTotal = (bud.total != null && bud.total > 0) ? bud.total : mSum;
+
+  const tpY = yearProgress(year);
+  const rateY = (budTotal && budTotal > 0) ? usedTotal / budTotal : null;
+  const vd = budgetVerdict(budTotal, usedTotal, tpY, READONLY);
+
+  let groups = "";
+  for (let q = 0; q < 4; q++){
+    let cards = "";
+    for (let k = 0; k < 3; k++){
+      const mi = q * 3 + k;
+      const a = mStat[mi];
+      const b = mBud[mi];
+      const tp = monthProgress(year, mi);
+      const isNow = tp > 0 && tp < 1;
+      const rate = (b != null && b > 0) ? a.used / b : null;
+
+      let cls = "", rcls = "";
+      if (rate != null){
+        if (rate > 1){ cls = "over"; rcls = "over"; }
+        else if (tp > 0 && tp < 1 && rate > tp + 0.1){ cls = "warn"; rcls = "warn"; }
+      }
+      const fillPct = rate == null ? 0 : Math.min(rate, 1) * 100;
+      const clockTxt = tp >= 1 ? "已结束" : (tp <= 0 ? "未开始" : "已过 " + Math.round(tp * 100) + "%");
+
+      cards +=
+        '<div class="bqm' + (isNow ? ' now' : '') + '">' +
+          '<div class="bq-h">' +
+            '<span class="bq-t">' + (mi + 1) + '月</span>' +
+            '<span class="bq-clock' + (isNow ? ' live' : '') + '">' + clockTxt + '</span>' +
+          '</div>' +
+          '<div class="bq-row"><span class="k">预算</span><span class="v">' +
+            (b != null ? fmtMoney(b) : '<i class="bq-set">未设置</i>') + '</span></div>' +
+          '<div class="bq-row"><span class="k">已发生</span><span class="v">' + fmtMoney(a.used) + '</span></div>' +
+          '<div class="bq-bar">' +
+            '<div class="bq-fill ' + cls + '" style="width:' + fillPct.toFixed(2) + '%"></div>' +
+            '<div class="bq-now" style="left:' + (tp * 100).toFixed(2) + '%"></div>' +
+          '</div>' +
+          '<div class="bq-foot">' +
+            '<span class="bq-rate ' + rcls + '">' + (rate != null ? fmtPct(rate) : '—') + '</span>' +
+            '<span class="bq-left">' + (b != null ? fmtGap(b - a.used) : '收票 ' + fmtMoney(a.inv)) + '</span>' +
+          '</div>' +
+        '</div>';
+    }
+
+    groups +=
+      '<div class="bqg">' +
+        '<div class="bqg-h">Q' + (q + 1) + ' · ' + (q * 3 + 1) + '-' + (q * 3 + 3) + '月</div>' +
+        cards +
+      '</div>';
+  }
+
+  const topHtml =
+    '<div class="bud-top">' +
+      '<div class="bud-m"><div class="bud-m-l">年度预算</div>' +
+        '<div class="bud-m-v">' + (budTotal != null ? fmtMoney(budTotal) : '—') + '</div></div>' +
+      '<div class="bud-m"><div class="bud-m-l">已发生（下单口径）</div>' +
+        '<div class="bud-m-v">' + fmtMoney(usedTotal) + '</div></div>' +
+      '<div class="bud-m"><div class="bud-m-l">执行率</div>' +
+        '<div class="bud-m-v ' + (rateY != null && rateY > 1 ? 'over' : '') + '">' +
+          (rateY != null ? fmtPct(rateY) : '—') + '</div></div>' +
+      '<div class="bud-m"><div class="bud-m-l">时间进度</div>' +
+        '<div class="bud-m-v">' + fmtPct(tpY) + '</div></div>' +
+      '<div class="bud-m"><div class="bud-m-l">剩余额度</div>' +
+        '<div class="bud-m-v ' + (budTotal != null && usedTotal > budTotal ? 'over' : '') + '">' +
+          (budTotal != null ? fmtGap(budTotal - usedTotal) : '—') + '</div></div>' +
+      '<div class="bud-verdict ' + vd.cls + '">' + vd.txt + '</div>' +
+    '</div>';
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">预算执行（按月） <span class="pill">' + esc(year) + ' 年</span></div>' +
+      '<div class="sec-m" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' +
+        '<span>按下单日期归月 · 全年数据（不受月份筛选影响）</span>' +
+        '<button id="btnBudget" style="font-size:12.5px;padding:5px 12px">设置预算</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="sec-b">' + topHtml + '<div class="bud-q">' + groups + '</div></div>' +
+  '</div>';
+}
+
+function renderBudgetAllYears(subs){
+  const budgetYears = Object.keys(loadBudget());
+  const dataYears = [...new Set(RAW.filter(r => subs.includes(r.sub)).map(r => String(r.y)))];
+  const years = [...new Set(dataYears.concat(budgetYears))].sort((a, b) => b - a);
+  if (!years.length) return "";
+
+  const rowsHtml = years.map(y => {
+    const bud = getBudget(y);
+    const mBud = bud.m;
+    const budTotal = (bud.total != null && bud.total > 0) ? bud.total
+      : (mBud.some(v => v != null) ? mBud.reduce((s, v) => s + (v || 0), 0) : null);
+    const used = RAW.filter(r => String(r.y) === y && subs.includes(r.sub))
+      .reduce((s, r) => s + r.amount, 0);
+    const rate = (budTotal && budTotal > 0) ? used / budTotal : null;
+    const tpY = yearProgress(y);
+
+    return '<tr>' +
+      '<td><b>' + esc(y) + '</b></td>' +
+      '<td class="num">' + (budTotal != null ? fmtMoney(budTotal) : '<span class="mute">未设置</span>') + '</td>' +
+      '<td class="num">' + fmtMoney(used) + '</td>' +
+      '<td class="num">' + (rate != null ? fmtPct(rate) : '—') + '</td>' +
+      '<td class="num">' + (budTotal != null ? fmtGap(budTotal - used) : '—') + '</td>' +
+      '<td class="num"><span class="mute">' + fmtPct(tpY) + '</span></td>' +
+    '</tr>';
+  }).join("");
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">预算执行（按月） <span class="pill">全部年份</span></div>' +
+      '<div class="sec-m" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' +
+        '<span>不同年份的预算不合并，选择具体年份可查看 12 个月明细</span>' +
+        '<button id="btnBudget" style="font-size:12.5px;padding:5px 12px">设置预算</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="sec-b">' +
+      '<div class="tbl-wrap" style="max-height:none"><table style="min-width:560px">' +
+        '<thead><tr>' +
+          '<th>年份</th>' +
+          '<th class="num">年度预算</th>' +
+          '<th class="num">已发生（下单口径）</th>' +
+          '<th class="num">执行率</th>' +
+          '<th class="num">剩余 / 超支</th>' +
+          '<th class="num">时间进度</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody>' +
+      '</table></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function openBudgetModal(){
+  const years = [...new Set(RAW.map(r => String(r.y)))].sort();
+  const initYear = pickBudgetYear() || (years.length ? years[years.length - 1] : String(new Date().getFullYear()));
+  if (!years.includes(initYear)) years.push(initYear);
+
+  const mask = document.createElement("div");
+  mask.className = "mask";
+  mask.id = "budMask";
+  mask.innerHTML =
+    '<div class="modal">' +
+      '<div class="modal-h"><span>设置预算</span><button class="modal-x" id="budClose">×</button></div>' +
+      '<div class="modal-b">' +
+        '<div class="mrow"><label>年份</label><div>' +
+          '<select id="bYearSel" style="width:100%">' +
+            years.map(y => '<option value="' + esc(y) + '"' + (y === initYear ? ' selected' : '') + '>' + esc(y) + ' 年</option>').join("") +
+          '</select></div></div>' +
+        '<div class="mrow"><label>年度总额</label><div style="display:flex;gap:8px">' +
+          '<input id="bTotal" type="text" inputmode="decimal" placeholder="留空 = 未设置，也可填 1200万" />' +
+          '<button id="bSplit" style="white-space:nowrap">均分到 12 个月</button>' +
+        '</div></div>' +
+        '<div style="height:1px;background:var(--bd);margin:15px 0 13px"></div>' +
+        '<div class="bmg">' +
+          [0,1,2,3,4,5,6,7,8,9,10,11].map(i =>
+            '<div class="bmg-c"><label>' + (i + 1) + '月</label>' +
+              '<input class="bmIn" data-m="' + i + '" type="text" inputmode="decimal" placeholder="未设置" />' +
+            '</div>'
+          ).join("") +
+        '</div>' +
+        '<div class="diff" id="bDiff"></div>' +
+        '<div class="mask-hint">' +
+          '<b>口径</b>：按下单日期（C 列）归月，金额取税前总金额（U 列）。<br>' +
+          '<b>单位</b>：直接填元，也可填 <code>120万</code>、<code>1,200,000</code>。' +
+        '</div>' +
+      '</div>' +
+      '<div class="modal-f">' +
+        '<button id="bCopy">复制配置代码</button>' +
+        '<button id="bClearLocal">清空本地设置</button>' +
+        '<button id="bCancel">取消</button>' +
+        '<button id="bSave" class="primary">保存</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(mask);
+
+  fillBudgetForm(initYear);
+
+  $("budClose").onclick = closeBudgetModal;
+  $("bCancel").onclick = closeBudgetModal;
+  mask.addEventListener("click", e => { if (e.target === mask) closeBudgetModal(); });
+
+  $("bYearSel").onchange = () => fillBudgetForm($("bYearSel").value);
+
+  $("bTotal").addEventListener("input", updateBudDiff);
+  document.querySelectorAll(".bmIn").forEach(inp => inp.addEventListener("input", updateBudDiff));
+
+  $("bSplit").onclick = () => {
+    const t = parseAmt($("bTotal").value);
+    if (t == null || t <= 0){ alert("请先填年度总额，再点均分。"); return; }
+    const base = Math.floor(t / 12);
+    const ms = Array(12).fill(base);
+    ms[11] = t - base * 11;
+    document.querySelectorAll(".bmIn").forEach((inp, i) => inp.value = ms[i]);
+    updateBudDiff();
+  };
+
+  $("bSave").onclick = () => {
+    const y = $("bYearSel").value;
+    const all = loadBudget();
+    const ms = [0,1,2,3,4,5,6,7,8,9,10,11].map(i => parseAmt(document.querySelector('.bmIn[data-m="' + i + '"]').value));
+    let total = parseAmt($("bTotal").value);
+    if (total == null && ms.some(v => v != null)) total = ms.reduce((s, v) => s + (v || 0), 0);
+    all[y] = { total: total, m: ms };
+    saveBudget(all);
+    closeBudgetModal();
+    render();
+  };
+
+  $("bClearLocal").onclick = () => {
+    if (!confirm("清空本机保存的全部预算设置？\n（HTML 里 BUDGET 常量中写死的值仍会生效）")) return;
+    try { localStorage.removeItem(BUDGET_KEY); } catch(e){}
+    __budMem = {};
+    closeBudgetModal();
+    render();
+  };
+
+  $("bCopy").onclick = () => showBudgetCode();
+}
+
+function closeBudgetModal(){
+  const m = $("budMask");
+  if (m) m.remove();
+}
+
+function fillBudgetForm(year){
+  const b = getBudget(year);
+  $("bTotal").value = b.total == null ? "" : b.total;
+  document.querySelectorAll(".bmIn").forEach((inp, i) => {
+    inp.value = b.m[i] == null ? "" : b.m[i];
+  });
+  updateBudDiff();
+}
+
+function updateBudDiff(){
+  const d = $("bDiff");
+  if (!d) return;
+  const t = parseAmt($("bTotal").value);
+  const sum = [...document.querySelectorAll(".bmIn")]
+    .reduce((s, inp) => s + (parseAmt(inp.value) || 0), 0);
+
+  if (t == null && sum === 0){ d.className = "diff"; d.textContent = ""; return; }
+  if (t == null){
+    d.className = "diff";
+    d.textContent = "月份合计 " + fmtMoneyFull(sum) + "（年度总额留空，保存时按月份合计回填）";
+    return;
+  }
+  const gap = t - sum;
+  if (Math.abs(gap) < 1){
+    d.className = "diff ok";
+    d.textContent = "✓ 月份合计与年度总额一致：" + fmtMoneyFull(t);
+  } else {
+    d.className = "diff bad";
+    d.textContent = "月份合计 " + fmtMoneyFull(sum) + "，与年度总额相差 " + fmtMoneyFull(gap);
+  }
+}
+
+function fallbackCopy(txt){
+  const ta = document.createElement("textarea");
+  ta.value = txt;
+  ta.style.cssText = "position:fixed;opacity:0;left:-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch(e){}
+  document.body.removeChild(ta);
+  return ok;
+}
+
+function showBudgetCode(){
+  const txt = "const BUDGET = " + JSON.stringify(loadBudget(), null, 2) + ";";
+  const box = document.createElement("div");
+  box.className = "mask";
+  box.style.zIndex = "1001";
+  box.innerHTML =
+    '<div class="modal" style="width:min(640px,100%)">' +
+      '<div class="modal-h"><span>复制下面的代码替换 HTML 里的 BUDGET</span>' +
+        '<button class="modal-x" id="codeClose">×</button></div>' +
+      '<div class="modal-b">' +
+        '<div class="mask-hint" style="margin:0 0 12px">打开 HTML 文件，搜索 <code>const BUDGET</code>，' +
+          '把整段 <code>const BUDGET = { … };</code> 替换成下面的内容并保存。' +
+          '之后这个预算就跟着文件走，换电脑也不会丢。</div>' +
+        '<textarea id="codeTa" readonly style="width:100%;height:220px;font-family:ui-monospace,Menlo,Consolas,monospace;' +
+          'font-size:12px;line-height:1.6;border:1px solid var(--bd);border-radius:7px;padding:10px 12px;resize:vertical"></textarea>' +
+        '<div id="codeTip" class="diff"></div>' +
+      '</div>' +
+      '<div class="modal-f"><button id="codeDone" class="primary">关闭</button></div>' +
+    '</div>';
+  document.body.appendChild(box);
+  const ta = box.querySelector("#codeTa");
+  ta.value = txt;
+  ta.focus(); ta.select();
+
+  const tip = box.querySelector("#codeTip");
+  const done = ok => {
+    tip.className = ok ? "diff ok" : "diff bad";
+    tip.textContent = ok ? "✓ 已复制到剪贴板" : "自动复制被浏览器阻止，请在上面的框里按 Ctrl+A / Ctrl+C 手动复制";
+  };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(() => done(true)).catch(() => done(fallbackCopy(txt)));
+    } else done(fallbackCopy(txt));
+  } catch(e){ done(fallbackCopy(txt)); }
+
+  box.querySelector("#codeClose").onclick = () => box.remove();
+  box.querySelector("#codeDone").onclick = () => box.remove();
+  box.addEventListener("click", e => { if (e.target === box) box.remove(); });
+}
+
+$("btnPick").addEventListener("click", () => $("fileInput").click());
+
+$("fileInput").addEventListener("change", e => {
+  handleFiles(e.target.files);
+  e.target.value = "";
+});
+
+$("btnClear").addEventListener("click", () => {
+  RAW = [];
+  FILE_STATE = [];
+  $("selYear").innerHTML = '<option value="all">全部</option>';
+  $("selMonth").innerHTML = '<option value="all">全部</option>';
+  $("notice").innerHTML = "";
+  showWelcome();
+});
+
+buildMonthOptions();
+
+$("selYear").addEventListener("change", render);
+$("selMonth").addEventListener("change", render);
+$("selSub").addEventListener("change", render);
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t && (t.id === "btnBudget" || t.classList.contains("bq-set"))){
+    openBudgetModal();
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeBudgetModal();
+});
+
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentView = btn.dataset.view;
+    render();
+  });
+});
+
+let dragDepth = 0;
+document.addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; });
+document.addEventListener("dragover",  e => { e.preventDefault(); });
+document.addEventListener("dragleave", e => {
+  e.preventDefault();
+  if (--dragDepth <= 0){ dragDepth = 0; }
+});
+document.addEventListener("drop", e => {
+  e.preventDefault();
+  dragDepth = 0;
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
+    handleFiles(e.dataTransfer.files);
+  }
+});
+
+showWelcome();
+</script>
+</body>
+</html>
