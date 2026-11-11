@@ -36,6 +36,31 @@
   button.primary:hover{background:#1d4ed8;border-color:#1d4ed8}
   label.fld{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dim)}
 
+  .mf{position:relative;display:inline-block}
+  .mf-btn{
+    font:inherit;font-size:12.5px;color:#374151;background:#fff;
+    border:1px solid var(--bd);border-radius:7px;padding:6px 12px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;max-width:240px;
+  }
+  .mf-btn:hover{border-color:#93b4f5}
+  .mf-btn.on{border-color:#2563eb;color:#2563eb;font-weight:600;background:#eef4ff}
+  .mf-btn .mf-arrow{font-size:9px;color:#9aa4b2}
+  .mf-pop{
+    display:none;position:absolute;top:calc(100% + 5px);left:0;z-index:60;
+    background:#fff;border:1px solid var(--bd);border-radius:9px;
+    box-shadow:0 8px 26px rgba(15,23,42,.13);padding:6px;min-width:130px;
+  }
+  .mf.open .mf-pop{display:block}
+  .mf-it{
+    display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;
+    font-size:12.5px;color:#374151;cursor:pointer;user-select:none;white-space:nowrap;
+  }
+  .mf-it:hover{background:#f2f6ff}
+  .mf-it input{accent-color:#2563eb;margin:0;cursor:pointer}
+  .mf-it.sel{color:#2563eb;font-weight:600}
+  .mf-act{border-top:1px solid var(--bd);margin-top:5px;padding:6px 10px 2px;display:flex;gap:10px}
+  .mf-act a{font-size:11.5px;color:#2563eb;text-decoration:none;cursor:pointer}
+
   .files{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px}
 
   .tabs{
@@ -136,6 +161,29 @@
   .bud-verdict.ok{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
   .bud-verdict.bad{background:#fef2f2;border-color:#fecaca;color:#991b1b}
   .bud-q{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+
+  .bline{margin-bottom:20px}
+  .bline-h{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;flex-wrap:wrap}
+  .bline-y{font-weight:700;font-size:14.5px;color:#1a2233}
+  .bline-nums{font-size:12.5px;color:#5b6472}
+  .bline-nums b{color:#1a2233}
+  .bline-nums b.over-t{color:#dc2626}
+  .bline-track{position:relative;display:flex;height:8px;background:#e8edf3;border-radius:4px}
+  .bseg{position:relative;flex:1;overflow:hidden}
+  .bseg:first-child{border-radius:4px 0 0 4px}
+  .bseg:last-child{border-radius:0 4px 4px 0}
+  .bline-cons{position:relative;height:12px;margin-bottom:3px}
+  .cneedle{position:absolute;top:0;bottom:0;width:3px;border-radius:2px;background:#111827;transform:translateX(-50%);z-index:2;box-shadow:0 0 0 1.5px #fff}
+  .cneedle.over{background:#ef4444}
+  .bline-time{position:relative;height:12px;margin-top:3px}
+  .tneedle{position:absolute;top:0;bottom:0;width:3px;border-radius:2px;background:#2563eb;transform:translateX(-50%);z-index:2;box-shadow:0 0 0 1.5px #fff}
+  .bseg:hover{background:rgba(37,99,235,.06)}
+  #budTip{position:fixed;display:none;z-index:1000;pointer-events:none;background:#111827;color:#fff;font-size:12px;line-height:1.6;padding:7px 12px;border-radius:8px;box-shadow:0 5px 16px rgba(15,23,42,.28);white-space:nowrap}
+  #budTip .red{color:#fca5a5;font-weight:600}
+  .bdot{position:absolute;top:50%;width:5px;height:5px;border-radius:50%;background:#fff;border:1.5px solid #94a3b8;transform:translate(-50%,-50%);z-index:2}
+  .bline-ml{display:flex;margin-top:5px}
+  .bline-ml span{flex:1;text-align:center;font-size:11px;color:#8a94a6}
+  .bline-ml span.over-t{color:#dc2626}
   .bq{border:1px solid var(--bd);border-radius:9px;padding:12px 14px 13px;background:#fcfdfe}
   .bq.now{border-color:#bfd3f8;background:#f8fbff;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
   .bq-h{display:flex;align-items:baseline;gap:7px;margin-bottom:9px}
@@ -246,19 +294,18 @@
     </div>
     <div class="toolbar">
       <button id="btnPick" class="primary">选择 Excel 文件</button>
-      <label class="fld">Sub
-        <select id="selSub">
-          <option value="703">703</option>
-          <option value="764">764</option>
-          <option value="all">703 + 764</option>
-        </select>
-      </label>
-      <label class="fld">年份
-        <select id="selYear"><option value="all">全部</option></select>
-      </label>
-      <label class="fld">月份
-        <select id="selMonth"><option value="all">全部</option></select>
-      </label>
+      <div class="mf" id="mfSub">
+        <button class="mf-btn" type="button">Sub：全部</button>
+        <div class="mf-pop"></div>
+      </div>
+      <div class="mf" id="mfYear">
+        <button class="mf-btn" type="button">年份：全部</button>
+        <div class="mf-pop"></div>
+      </div>
+      <div class="mf" id="mfMonth">
+        <button class="mf-btn" type="button">月份：全部</button>
+        <div class="mf-pop"></div>
+      </div>
       <button id="btnClear">清空</button>
     </div>
   </header>
@@ -625,6 +672,8 @@ async function handleFiles(fileList){
   $("notice").innerHTML = notes.join("");
 
   buildYearOptions();
+  const ym = document.getElementById("mfYear");
+  if (ym && ym._mfPaint) ym._mfPaint();
   render();
 }
 
@@ -642,23 +691,88 @@ function renderFileChips(list){
   }).join("");
 }
 
-function buildYearOptions(){
-  const years = [...new Set(RAW.map(r => r.y))].sort((a, b) => b - a);
-  const sel = $("selYear");
-  const cur = sel.value;
-  sel.innerHTML = '<option value="all">全部</option>' +
-    years.map(y => '<option value="' + y + '">' + y + '</option>').join("");
-  if (years.map(String).includes(cur)) sel.value = cur;
+const F = { years: new Set(), months: new Set(), subs: new Set() };
+
+function yearOptions(){
+  return [...new Set(RAW.map(r => String(r.y)))].sort((a, b) => b - a);
 }
 
-function buildMonthOptions(){
-  const sel = $("selMonth");
-  let html = '<option value="all">全部</option>';
-  for (let m = 1; m <= 12; m++){
-    html += '<option value="' + m + '">' + m + ' 月</option>';
-  }
-  sel.innerHTML = html;
+function mfSetup(id, name, key, getItems){
+  const root = $(id);
+  const btn = root.querySelector(".mf-btn");
+  const pop = root.querySelector(".mf-pop");
+
+  const paintBtn = () => {
+    const set = F[key];
+    const items = getItems().map(String);
+    const parts = items.filter(v => set.has(v));
+    let t = "";
+    if (set.size){
+      t = parts.join("/");
+      const extra = set.size - parts.length;
+      if (extra > 0) t += "+" + extra;
+      if (t.length > 16) t = t.slice(0, 15) + "…";
+    }
+    btn.innerHTML = name + "：" + (t ? "<b>" + esc(t) + "</b>" : "全部") + ' <span class="mf-arrow">▼</span>';
+    btn.classList.toggle("on", !!t);
+  };
+
+  const paintPop = () => {
+    const set = F[key];
+    pop.innerHTML = getItems().map(v => {
+      const s = String(v);
+      const on = set.has(s);
+      return '<label class="mf-it' + (on ? ' sel' : '') + '">' +
+        '<input type="checkbox"' + (on ? ' checked' : '') + ' data-v="' + esc(s) + '">' +
+        esc(s) + (key === "months" ? " 月" : "") + '</label>';
+    }).join("") +
+    '<div class="mf-act"><a data-a="all">全选</a><a data-a="none">清空</a></div>';
+  };
+
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const opening = !root.classList.contains("open");
+    document.querySelectorAll(".mf.open").forEach(m => m.classList.remove("open"));
+    root.classList.toggle("open", opening);
+    if (opening) paintPop();
+  });
+
+  pop.addEventListener("click", e => e.stopPropagation());
+
+  pop.addEventListener("change", e => {
+    const cb = e.target;
+    if (!cb || !cb.matches("input[type=checkbox]")) return;
+    const v = cb.dataset.v;
+    if (cb.checked) F[key].add(v); else F[key].delete(v);
+    paintBtn(); paintPop(); render();
+  });
+
+  pop.addEventListener("click", e => {
+    const a = e.target.closest("a[data-a]");
+    if (!a) return;
+    if (a.dataset.a === "all") getItems().forEach(v => F[key].add(String(v)));
+    else F[key].clear();
+    paintBtn(); paintPop(); render();
+  });
+
+  paintBtn();
+  root._mfPaint = () => { paintBtn(); };
 }
+
+document.addEventListener("click", () => {
+  document.querySelectorAll(".mf.open").forEach(m => m.classList.remove("open"));
+});
+
+function buildYearOptions(){
+  const items = yearOptions();
+  [...F.years].forEach(v => { if (!items.includes(v)) F.years.delete(v); });
+}
+
+function selYears(){ return F.years.size ? [...F.years].map(Number).sort((a, b) => a - b) : null; }
+function selMonths(){ return F.months.size ? [...F.months].map(Number).sort((a, b) => a - b) : null; }
+function selSubs(){ return F.subs.size ? CONFIG.targets.filter(t => F.subs.has(t)) : [...CONFIG.targets]; }
+function yLabel(ys){ return ys ? ys.join("/") + " 年" : "全部年份"; }
+function mLabel(ms){ return ms ? ms.join("/") + " 月" : "全部月份"; }
 
 function keyOf(r, dim, allYears){
   if (dim === "single") return "TOTAL";
@@ -697,15 +811,13 @@ function render(){
   charts.forEach(c => { try { c.destroy(); } catch(e){} });
   charts.length = 0;
 
-  const yearSel  = $("selYear").value;
-  const monthSel = $("selMonth").value;
-  const subSel   = $("selSub").value;
+  const years  = selYears();
+  const months = selMonths();
+  const subs   = selSubs();
 
   let rows = RAW;
-  if (yearSel !== "all")  rows = rows.filter(r => String(r.y) === yearSel);
-  if (monthSel !== "all") rows = rows.filter(r => String(r.m) === monthSel);
-
-  const subs = subSel === "all" ? ["703", "764"] : [subSel];
+  if (years)  rows = rows.filter(r => years.includes(r.y));
+  if (months) rows = rows.filter(r => months.includes(r.m));
   rows = rows.filter(r => subs.includes(r.sub));
 
   if (!rows.length){
@@ -714,15 +826,15 @@ function render(){
     return;
   }
 
-  const dim = (monthSel !== "all") ? "single" : "month";
-  const allYears = (yearSel === "all");
+  const dim = (months && months.length === 1) ? "single" : "month";
+  const oneYear = (years && years.length === 1) ? String(years[0]) : null;
 
   if (currentView === "overview"){
-    renderOverviewView(rows, dim, allYears, subs);
+    renderOverviewView(rows, dim, oneYear, subs);
     return;
   }
   if (currentView === "dept"){
-    renderDeptView(rows, yearSel, monthSel, subs);
+    renderDeptView(rows, subs);
     return;
   }
   if (currentView === "overdue"){
@@ -731,7 +843,7 @@ function render(){
   }
 
   const data = {};
-  subs.forEach(t => data[t] = aggByDim(rows, dim, t, allYears));
+  subs.forEach(t => data[t] = aggByDim(rows, dim, t, !oneYear));
 
   const tot = { total: 0, invoiced: 0, cnt: 0, invCnt: 0 };
   subs.forEach(t => data[t].forEach(o => {
@@ -742,8 +854,8 @@ function render(){
   const rate = tot.cnt ? tot.invCnt / tot.cnt : 0;
 
   const parts = [];
-  parts.push(yearSel === "all" ? "全部年份" : yearSel + " 年");
-  parts.push(monthSel === "all" ? "全部月份" : monthSel + " 月");
+  parts.push(yLabel(years));
+  parts.push(mLabel(months));
   parts.push("Sub " + subs.join(" / "));
   parts.push(fmtInt(tot.cnt) + " 张订单");
   $("sub").textContent = parts.join(" · ");
@@ -751,10 +863,10 @@ function render(){
   $("content").innerHTML =
     renderKpis(tot, pendingAmt, rate, "EPR税前总金额合计") +
     renderTables(data, dim, subs) +
-    renderCharts(data, dim, subs, monthSel);
+    renderCharts(data, dim, subs, months);
 }
 
-function renderDeptView(rows, yearSel, monthSel, subs){
+function renderDeptView(rows, subs){
 
   const deptRows = rows.filter(r => r.dept && r.dept !== "");
 
@@ -801,8 +913,8 @@ function renderDeptView(rows, yearSel, monthSel, subs){
   const rate = tot.cnt ? tot.invCnt / tot.cnt : 0;
 
   const parts = [];
-  parts.push(yearSel === "all" ? "全部年份" : yearSel + " 年");
-  parts.push(monthSel === "all" ? "全部月份" : monthSel + " 月");
+  parts.push(yLabel(selYears()));
+  parts.push(mLabel(selMonths()));
   parts.push("Sub " + subs.join(" / "));
   parts.push(list.length + " 个部门");
   parts.push(fmtInt(tot.cnt) + " 张订单");
@@ -956,7 +1068,7 @@ function isInternalSupplier(name){
   return /^[A-Za-z]/.test(name);
 }
 
-function renderOverviewView(rows, dim, allYears, subs){
+function renderOverviewView(rows, dim, oneYear, subs){
   if (!rows.length){
     $("sub").textContent = "没有匹配的数据";
     $("content").innerHTML = "";
@@ -979,10 +1091,8 @@ function renderOverviewView(rows, dim, allYears, subs){
   const pendingAmt = tot.total - tot.invoiced;
 
   const parts = [];
-  parts.push(dim === "single" || $("selMonth").value !== "all"
-    ? $("selYear").value === "all" ? "全部年份" : $("selYear").value + " 年"
-    : ($("selYear").value === "all" ? "全部年份" : $("selYear").value + " 年"));
-  parts.push($("selMonth").value === "all" ? "全部月份" : $("selMonth").value + " 月");
+  parts.push(yLabel(selYears()));
+  parts.push(mLabel(selMonths()));
   parts.push("Sub " + subs.join(" / "));
   parts.push(fmtInt(tot.cnt) + " 张订单");
   $("sub").textContent = parts.join(" · ");
@@ -1006,9 +1116,7 @@ function renderOverviewView(rows, dim, allYears, subs){
 
   $("content").innerHTML =
     kpiHtml +
-    ($("selYear").value === "all"
-      ? renderBudgetAllYears(subs)
-      : renderBudgetBlock($("selYear").value, subs)) +
+    renderBudgetLines() +
     renderSupplier(rows, subs) +
     renderCategoryTrend(rows);
 
@@ -1783,8 +1891,7 @@ function getBudget(year){
 }
 
 function pickBudgetYear(){
-  const sel = $("selYear").value;
-  if (sel && sel !== "all") return sel;
+  if (F.years.size === 1) return [...F.years][0];
   let mx = null;
   for (const r of RAW){ if (mx === null || r.y > mx) mx = r.y; }
   return mx === null ? null : String(mx);
@@ -1839,152 +1946,120 @@ function budgetVerdict(budTotal, used, tpY, ro){
   return { cls: "ok", txt: "进度与时间基本持平（相差 " + pp.toFixed(1) + " 个百分点）。按当前节奏，年末支出约 " + fmtMoney(forecast) + "，在预算范围内。" };
 }
 
-function renderBudgetBlock(year, subs){
-  if (!year) return "";
+function renderBudgetLines(){
+  const years = [...new Set(RAW.filter(r => !F.years.size || F.years.has(String(r.y))).map(r => String(r.y)))].sort((a, b) => b - a);
+  if (!years.length) return "";
 
-  const yRows = RAW.filter(r => String(r.y) === String(year) && subs.includes(r.sub));
-
-  const mStat = [0,1,2,3,4,5,6,7,8,9,10,11].map(() => ({ used: 0, inv: 0, cnt: 0, invCnt: 0 }));
-  for (const r of yRows){
-    const mi = r.m - 1;
-    if (mi < 0 || mi > 11) continue;
-    const a = mStat[mi];
-    a.used += r.amount; a.cnt++;
-    if (r.invoiced){ a.inv += r.amount; a.invCnt++; }
-  }
-
-  const bud = getBudget(year);
-  const mBud = bud.m;
-  const usedTotal = mStat.reduce((s, a) => s + a.used, 0);
-  const mSum = mBud.every(v => v == null) ? null : mBud.reduce((s, v) => s + (v || 0), 0);
-  const budTotal = (bud.total != null && bud.total > 0) ? bud.total : mSum;
-
-  const tpY = yearProgress(year);
-  const rateY = (budTotal && budTotal > 0) ? usedTotal / budTotal : null;
-  const vd = budgetVerdict(budTotal, usedTotal, tpY, READONLY);
-
-  let groups = "";
-  for (let q = 0; q < 4; q++){
-    let cards = "";
-    for (let k = 0; k < 3; k++){
-      const mi = q * 3 + k;
-      const a = mStat[mi];
-      const b = mBud[mi];
-      const tp = monthProgress(year, mi);
-      const isNow = tp > 0 && tp < 1;
-      const rate = (b != null && b > 0) ? a.used / b : null;
-
-      let cls = "", rcls = "";
-      if (rate != null){
-        if (rate > 1){ cls = "over"; rcls = "over"; }
-        else if (tp > 0 && tp < 1 && rate > tp + 0.1){ cls = "warn"; rcls = "warn"; }
-      }
-      const fillPct = rate == null ? 0 : Math.min(rate, 1) * 100;
-      const clockTxt = tp >= 1 ? "已结束" : (tp <= 0 ? "未开始" : "已过 " + Math.round(tp * 100) + "%");
-
-      cards +=
-        '<div class="bqm' + (isNow ? ' now' : '') + '">' +
-          '<div class="bq-h">' +
-            '<span class="bq-t">' + (mi + 1) + '月</span>' +
-            '<span class="bq-clock' + (isNow ? ' live' : '') + '">' + clockTxt + '</span>' +
-          '</div>' +
-          '<div class="bq-row"><span class="k">预算</span><span class="v">' +
-            (b != null ? fmtMoney(b) : '<i class="bq-set">未设置</i>') + '</span></div>' +
-          '<div class="bq-row"><span class="k">已发生</span><span class="v">' + fmtMoney(a.used) + '</span></div>' +
-          '<div class="bq-bar">' +
-            '<div class="bq-fill ' + cls + '" style="width:' + fillPct.toFixed(2) + '%"></div>' +
-            '<div class="bq-now" style="left:' + (tp * 100).toFixed(2) + '%"></div>' +
-          '</div>' +
-          '<div class="bq-foot">' +
-            '<span class="bq-rate ' + rcls + '">' + (rate != null ? fmtPct(rate) : '—') + '</span>' +
-            '<span class="bq-left">' + (b != null ? fmtGap(b - a.used) : '收票 ' + fmtMoney(a.inv)) + '</span>' +
-          '</div>' +
-        '</div>';
-    }
-
-    groups +=
-      '<div class="bqg">' +
-        '<div class="bqg-h">Q' + (q + 1) + ' · ' + (q * 3 + 1) + '-' + (q * 3 + 3) + '月</div>' +
-        cards +
+  const oneYear = (years.length === 1) ? years[0] : null;
+  let topHtml = "";
+  if (oneYear){
+    const yRows = RAW.filter(r => String(r.y) === String(oneYear));
+    const usedTotal0 = yRows.reduce((s, r) => s + r.amount, 0);
+    const b0 = getBudget(oneYear);
+    const mSum0 = b0.m.every(v => v == null) ? null : b0.m.reduce((s, v) => s + (v || 0), 0);
+    const budTotal0 = (b0.total != null && b0.total > 0) ? b0.total : mSum0;
+    const tpY0 = yearProgress(oneYear);
+    const rateY0 = (budTotal0 && budTotal0 > 0) ? usedTotal0 / budTotal0 : null;
+    const vd = budgetVerdict(budTotal0, usedTotal0, tpY0, READONLY);
+    topHtml =
+      '<div class="bud-top">' +
+        '<div class="bud-m"><div class="bud-m-l">年度预算</div>' +
+          '<div class="bud-m-v">' + (budTotal0 != null ? fmtMoney(budTotal0) : '—') + '</div></div>' +
+        '<div class="bud-m"><div class="bud-m-l">已发生（下单口径）</div>' +
+          '<div class="bud-m-v">' + fmtMoney(usedTotal0) + '</div></div>' +
+        '<div class="bud-m"><div class="bud-m-l">执行率</div>' +
+          '<div class="bud-m-v ' + (rateY0 != null && rateY0 > 1 ? 'over' : '') + '">' +
+            (rateY0 != null ? fmtPct(rateY0) : '—') + '</div></div>' +
+        '<div class="bud-m"><div class="bud-m-l">时间进度</div>' +
+          '<div class="bud-m-v">' + fmtPct(tpY0) + '</div></div>' +
+        '<div class="bud-m"><div class="bud-m-l">剩余额度</div>' +
+          '<div class="bud-m-v ' + (budTotal0 != null && usedTotal0 > budTotal0 ? 'over' : '') + '">' +
+            (budTotal0 != null ? fmtGap(budTotal0 - usedTotal0) : '—') + '</div></div>' +
+        '<div class="bud-verdict ' + vd.cls + '">' + vd.txt + '</div>' +
       '</div>';
   }
 
-  const topHtml =
-    '<div class="bud-top">' +
-      '<div class="bud-m"><div class="bud-m-l">年度预算</div>' +
-        '<div class="bud-m-v">' + (budTotal != null ? fmtMoney(budTotal) : '—') + '</div></div>' +
-      '<div class="bud-m"><div class="bud-m-l">已发生（下单口径）</div>' +
-        '<div class="bud-m-v">' + fmtMoney(usedTotal) + '</div></div>' +
-      '<div class="bud-m"><div class="bud-m-l">执行率</div>' +
-        '<div class="bud-m-v ' + (rateY != null && rateY > 1 ? 'over' : '') + '">' +
-          (rateY != null ? fmtPct(rateY) : '—') + '</div></div>' +
-      '<div class="bud-m"><div class="bud-m-l">时间进度</div>' +
-        '<div class="bud-m-v">' + fmtPct(tpY) + '</div></div>' +
-      '<div class="bud-m"><div class="bud-m-l">剩余额度</div>' +
-        '<div class="bud-m-v ' + (budTotal != null && usedTotal > budTotal ? 'over' : '') + '">' +
-          (budTotal != null ? fmtGap(budTotal - usedTotal) : '—') + '</div></div>' +
-      '<div class="bud-verdict ' + vd.cls + '">' + vd.txt + '</div>' +
-    '</div>';
-
-  return '<div class="sec">' +
-    '<div class="sec-h">' +
-      '<div class="sec-t">预算执行（按月） <span class="pill">' + esc(year) + ' 年</span></div>' +
-      '<div class="sec-m" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' +
-        '<span>按下单日期归月 · 全年数据（不受月份筛选影响）</span>' +
-        '<button id="btnBudget" style="font-size:12.5px;padding:5px 12px">设置预算</button>' +
-      '</div>' +
-    '</div>' +
-    '<div class="sec-b">' + topHtml + '<div class="bud-q">' + groups + '</div></div>' +
-  '</div>';
-}
-
-function renderBudgetAllYears(subs){
-  const budgetYears = Object.keys(loadBudget());
-  const dataYears = [...new Set(RAW.filter(r => subs.includes(r.sub)).map(r => String(r.y)))];
-  const years = [...new Set(dataYears.concat(budgetYears))].sort((a, b) => b - a);
-  if (!years.length) return "";
-
-  const rowsHtml = years.map(y => {
+  const linesHtml = years.map(y => {
+    const yRows = RAW.filter(r => String(r.y) === String(y));
+    const mStat = [0,1,2,3,4,5,6,7,8,9,10,11].map(() => ({ used: 0, cnt: 0 }));
+    for (const r of yRows){
+      const mi = r.m - 1;
+      if (mi < 0 || mi > 11) continue;
+      mStat[mi].used += r.amount;
+      mStat[mi].cnt++;
+    }
     const bud = getBudget(y);
     const mBud = bud.m;
-    const budTotal = (bud.total != null && bud.total > 0) ? bud.total
-      : (mBud.some(v => v != null) ? mBud.reduce((s, v) => s + (v || 0), 0) : null);
-    const used = RAW.filter(r => String(r.y) === y && subs.includes(r.sub))
-      .reduce((s, r) => s + r.amount, 0);
-    const rate = (budTotal && budTotal > 0) ? used / budTotal : null;
+    const mSum = mBud.every(v => v == null) ? null : mBud.reduce((s, v) => s + (v || 0), 0);
+    const budTotal = (bud.total != null && bud.total > 0) ? bud.total : mSum;
+    const usedTotal = mStat.reduce((s, a) => s + a.used, 0);
+    const rateY = (budTotal && budTotal > 0) ? usedTotal / budTotal : null;
     const tpY = yearProgress(y);
 
-    return '<tr>' +
-      '<td><b>' + esc(y) + '</b></td>' +
-      '<td class="num">' + (budTotal != null ? fmtMoney(budTotal) : '<span class="mute">未设置</span>') + '</td>' +
-      '<td class="num">' + fmtMoney(used) + '</td>' +
-      '<td class="num">' + (rate != null ? fmtPct(rate) : '—') + '</td>' +
-      '<td class="num">' + (budTotal != null ? fmtGap(budTotal - used) : '—') + '</td>' +
-      '<td class="num"><span class="mute">' + fmtPct(tpY) + '</span></td>' +
-    '</tr>';
+    const segs = mBud.map((b, mi) => {
+      const a = mStat[mi];
+      const rate = (b != null && b > 0) ? a.used / b : null;
+      const tipHtml = "<b>" + (mi + 1) + "月</b> · 预算 " +
+        (b != null ? fmtMoney(b) : "未设置") +
+        " · 已发生 " + fmtMoney(a.used) +
+        (rate != null ? " · 执行率 <span class='" + (rate > 1 ? "red" : "") + "'>" + fmtPct(rate) + "</span>" : "");
+      return '<div class="bseg" data-tip="' + esc(tipHtml) + '"></div>';
+    }).join("");
+
+    const expNeedle = (rateY == null || usedTotal <= 0) ? ""
+      : '<div class="cneedle' + (rateY > 1 ? " over" : "") + '" style="left:' +
+        (Math.min(rateY, 1) * 100).toFixed(2) + '%"></div>';
+
+    const timeNeedle = (tpY > 0 && tpY < 1)
+      ? '<div class="tneedle" style="left:' + (tpY * 100).toFixed(2) + '%"></div>'
+      : "";
+
+    const dots = [];
+    for (let i = 1; i < 12; i++){
+      dots.push('<span class="bdot" style="left:' + (i / 12 * 100).toFixed(3) + '%"></span>');
+    }
+
+    const nums = (budTotal != null
+      ? '预算 <b>' + fmtMoney(budTotal) + '</b>'
+      : '<span class="mute">预算未设置</span>') +
+      ' · 已发生 <b>' + fmtMoney(usedTotal) + '</b>' +
+      (rateY != null ? ' · 执行率 <b class="' + (rateY > 1 ? 'over-t' : '') + '">' + fmtPct(rateY) + '</b>' : '') +
+      (tpY > 0 && tpY < 1 ? ' · 时间进度 <b>' + fmtPct(tpY) + '</b>' : '') +
+      (budTotal != null ? ' · ' + fmtGap(budTotal - usedTotal) : '');
+
+    const stateTxt = tpY >= 1 ? ' · <span class="mute">已结束</span>'
+      : (tpY <= 0 ? ' · <span class="mute">未开始</span>' : '');
+
+    const mlabels = '<div class="bline-ml">' +
+      mBud.map((b, mi) => {
+        const overM = (b != null && b > 0 && mStat[mi].used > b);
+        return '<span' + (overM ? ' class="over-t" style="font-weight:600"' : '') + '>' + (mi + 1) + '月</span>';
+      }).join("") +
+    '</div>';
+
+    return '<div class="bline">' +
+      '<div class="bline-h">' +
+        '<span class="bline-y">' + esc(String(y)) + ' 年</span>' +
+        '<span class="bline-nums">' + nums + '</span>' +
+        stateTxt +
+      '</div>' +
+      '<div class="bline-cons">' + expNeedle + '</div>' +
+      '<div class="bline-track">' + segs + dots.join("") + '</div>' +
+      '<div class="bline-time">' + timeNeedle + '</div>' +
+      mlabels +
+    '</div>';
   }).join("");
 
   return '<div class="sec">' +
     '<div class="sec-h">' +
-      '<div class="sec-t">预算执行（按月） <span class="pill">全部年份</span></div>' +
+      '<div class="sec-t">预算执行 <span class="pill">' +
+        (oneYear ? esc(oneYear) + ' 年' : years.length + ' 个年份') + '</span></div>' +
       '<div class="sec-m" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' +
-        '<span>不同年份的预算不合并，选择具体年份可查看 12 个月明细</span>' +
+        '<span>上针 = 费用进度（超过下针 = 花钱快于时间，超预算变红） · 下针 = 时间进度 · 悬停月份看明细 · 不受月份/Sub 筛选影响</span>' +
         '<button id="btnBudget" style="font-size:12.5px;padding:5px 12px">设置预算</button>' +
       '</div>' +
     '</div>' +
-    '<div class="sec-b">' +
-      '<div class="tbl-wrap" style="max-height:none"><table style="min-width:560px">' +
-        '<thead><tr>' +
-          '<th>年份</th>' +
-          '<th class="num">年度预算</th>' +
-          '<th class="num">已发生（下单口径）</th>' +
-          '<th class="num">执行率</th>' +
-          '<th class="num">剩余 / 超支</th>' +
-          '<th class="num">时间进度</th>' +
-        '</tr></thead>' +
-        '<tbody>' + rowsHtml + '</tbody>' +
-      '</table></div>' +
-    '</div>' +
+    '<div class="sec-b">' + topHtml + linesHtml + '</div>' +
   '</div>';
 }
 
@@ -2023,7 +2098,6 @@ function openBudgetModal(){
         '</div>' +
       '</div>' +
       '<div class="modal-f">' +
-        '<button id="bCopy">复制配置代码</button>' +
         '<button id="bClearLocal">清空本地设置</button>' +
         '<button id="bCancel">取消</button>' +
         '<button id="bSave" class="primary">保存</button>' +
@@ -2071,8 +2145,6 @@ function openBudgetModal(){
     closeBudgetModal();
     render();
   };
-
-  $("bCopy").onclick = () => showBudgetCode();
 }
 
 function closeBudgetModal(){
@@ -2112,57 +2184,22 @@ function updateBudDiff(){
   }
 }
 
-function fallbackCopy(txt){
-  const ta = document.createElement("textarea");
-  ta.value = txt;
-  ta.style.cssText = "position:fixed;opacity:0;left:-9999px";
-  document.body.appendChild(ta);
-  ta.select();
-  let ok = false;
-  try { ok = document.execCommand("copy"); } catch(e){}
-  document.body.removeChild(ta);
-  return ok;
-}
+const budTip = document.createElement("div");
+budTip.id = "budTip";
+document.body.appendChild(budTip);
 
-function showBudgetCode(){
-  const txt = "const BUDGET = " + JSON.stringify(loadBudget(), null, 2) + ";";
-  const box = document.createElement("div");
-  box.className = "mask";
-  box.style.zIndex = "1001";
-  box.innerHTML =
-    '<div class="modal" style="width:min(640px,100%)">' +
-      '<div class="modal-h"><span>复制下面的代码替换 HTML 里的 BUDGET</span>' +
-        '<button class="modal-x" id="codeClose">×</button></div>' +
-      '<div class="modal-b">' +
-        '<div class="mask-hint" style="margin:0 0 12px">打开 HTML 文件，搜索 <code>const BUDGET</code>，' +
-          '把整段 <code>const BUDGET = { … };</code> 替换成下面的内容并保存。' +
-          '之后这个预算就跟着文件走，换电脑也不会丢。</div>' +
-        '<textarea id="codeTa" readonly style="width:100%;height:220px;font-family:ui-monospace,Menlo,Consolas,monospace;' +
-          'font-size:12px;line-height:1.6;border:1px solid var(--bd);border-radius:7px;padding:10px 12px;resize:vertical"></textarea>' +
-        '<div id="codeTip" class="diff"></div>' +
-      '</div>' +
-      '<div class="modal-f"><button id="codeDone" class="primary">关闭</button></div>' +
-    '</div>';
-  document.body.appendChild(box);
-  const ta = box.querySelector("#codeTa");
-  ta.value = txt;
-  ta.focus(); ta.select();
-
-  const tip = box.querySelector("#codeTip");
-  const done = ok => {
-    tip.className = ok ? "diff ok" : "diff bad";
-    tip.textContent = ok ? "✓ 已复制到剪贴板" : "自动复制被浏览器阻止，请在上面的框里按 Ctrl+A / Ctrl+C 手动复制";
-  };
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(txt).then(() => done(true)).catch(() => done(fallbackCopy(txt)));
-    } else done(fallbackCopy(txt));
-  } catch(e){ done(fallbackCopy(txt)); }
-
-  box.querySelector("#codeClose").onclick = () => box.remove();
-  box.querySelector("#codeDone").onclick = () => box.remove();
-  box.addEventListener("click", e => { if (e.target === box) box.remove(); });
-}
+document.addEventListener("mouseover", e => {
+  const t = e.target.closest(".bseg[data-tip]");
+  if (!t){ budTip.style.display = "none"; return; }
+  budTip.innerHTML = t.getAttribute("data-tip");
+  budTip.style.display = "block";
+  const r = t.getBoundingClientRect();
+  let x = r.left + r.width / 2 - budTip.offsetWidth / 2;
+  x = Math.max(8, Math.min(x, window.innerWidth - budTip.offsetWidth - 8));
+  budTip.style.left = x + "px";
+  budTip.style.top = (r.top - budTip.offsetHeight - 8) + "px";
+});
+document.addEventListener("scroll", () => { budTip.style.display = "none"; }, true);
 
 $("btnPick").addEventListener("click", () => $("fileInput").click());
 
@@ -2174,17 +2211,15 @@ $("fileInput").addEventListener("change", e => {
 $("btnClear").addEventListener("click", () => {
   RAW = [];
   FILE_STATE = [];
-  $("selYear").innerHTML = '<option value="all">全部</option>';
-  $("selMonth").innerHTML = '<option value="all">全部</option>';
+  F.years.clear(); F.months.clear(); F.subs.clear();
+  document.querySelectorAll(".mf").forEach(m => { if (m._mfPaint) m._mfPaint(); });
   $("notice").innerHTML = "";
   showWelcome();
 });
 
-buildMonthOptions();
-
-$("selYear").addEventListener("change", render);
-$("selMonth").addEventListener("change", render);
-$("selSub").addEventListener("change", render);
+mfSetup("mfSub", "Sub", "subs", () => CONFIG.targets);
+mfSetup("mfYear", "年份", "years", () => yearOptions());
+mfSetup("mfMonth", "月份", "months", () => ["1","2","3","4","5","6","7","8","9","10","11","12"]);
 
 document.addEventListener("click", e => {
   const t = e.target;
