@@ -809,12 +809,13 @@ function aggByDim(rows, dim, sub, allYears){
   for (const r of list){
     const k = keyOf(r, dim, allYears);
     if (!map.has(k)) map.set(k, {
-      key: k, total: 0, invoiced: 0, cnt: 0, invCnt: 0
+      key: k, total: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0
     });
     const o = map.get(k);
     o.total += r.amount;
     o.cnt++;
     if (r.invoiced){ o.invoiced += r.amount; o.invCnt++; }
+    if (r.submitted){ o.submitted += r.amount; }
   }
 
   const arr = [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
@@ -888,7 +889,7 @@ function render(){
   $("sub").textContent = parts.join(" · ");
 
   $("content").innerHTML =
-    renderKpis(tot, pendingAmt, rate, "EPR税前总金额合计") +
+    renderKpis(tot, pendingAmt, rate, "EPR税前总金额合计", true) +
     renderTables(data, dim, subs) +
     renderCharts(data, dim, subs, months);
 }
@@ -986,7 +987,6 @@ function renderDeptTable(list, ccAgg){
         '<td class="num">' + fmtMoneyFull(o.invoiced) + '</td>' +
         '<td class="num">' + fmtMoneyFull(o.submitted || 0) + '</td>' +
         '<td class="num ' + (o.pending > 0 ? '' : 'mute') + '">' + fmtMoneyFull(o.pending) + '</td>' +
-        '<td class="num"><span class="rate">' + fmtPct(rate) + '</span></td>' +
         '<td style="width:110px"><div class="bar-bg"><div class="bar-fg" style="width:' +
           (rate * 100).toFixed(1) + '%"></div></div></td>' +
       '</tr>';
@@ -1004,7 +1004,6 @@ function renderDeptTable(list, ccAgg){
           '<td class="num">' + fmtMoneyFull(c.invoiced) + '</td>' +
           '<td class="num">' + fmtMoneyFull(c.submitted || 0) + '</td>' +
           '<td class="num">' + fmtMoneyFull(c.amount - c.invoiced) + '</td>' +
-          '<td class="num">' + fmtPct(cr) + '</td>' +
           '<td><div class="bar-bg"><div class="bar-fg bar-rest" style="width:' +
             (cr * 100).toFixed(1) + '%"></div></div></td>' +
         '</tr>';
@@ -1026,8 +1025,7 @@ function renderDeptTable(list, ccAgg){
           '<th class="num">已收票金额</th>' +
           '<th class="num">已交票金额</th>' +
           '<th class="num">未收票金额</th>' +
-          '<th class="num">交票费用率</th>' +
-          '<th>交票比例</th>' +
+          '<th>已交费用比例</th>' +
         '</tr></thead>' +
         '<tbody>' + rowsHtml + '</tbody>' +
         '<tfoot><tr>' +
@@ -1036,7 +1034,6 @@ function renderDeptTable(list, ccAgg){
           '<td class="num">' + fmtMoneyFull(sumI) + '</td>' +
           '<td class="num">' + fmtMoneyFull(sumS) + '</td>' +
           '<td class="num">' + fmtMoneyFull(sumT - sumI) + '</td>' +
-          '<td class="num">' + fmtPct(sumT ? sumS / sumT : 0) + '</td>' +
           '<td></td>' +
         '</tr></tfoot>' +
       '</table></div>' +
@@ -1449,16 +1446,18 @@ function renderOverdueTable(overdue){
   '</div>';
 }
 
-function renderKpis(tot, pendingAmt, rate, totalLabel){
+function renderKpis(tot, pendingAmt, rate, totalLabel, simple){
   const cards = [
     { l: totalLabel || "税前总金额合计", v: fmtMoney(tot.total), x: fmtMoneyFull(tot.total), cls: "hl" },
     { l: "已收票金额", v: fmtMoney(tot.invoiced), x: "占比 " + fmtPct(tot.total ? tot.invoiced/tot.total : 0), cls: "" },
-    { l: "未收票金额", v: fmtMoney(pendingAmt), x: "待跟进", cls: "warn" },
+    { l: "未收票金额", v: fmtMoney(pendingAmt), x: "待跟进", cls: "warn" }
+  ];
+  if (!simple) cards.push(
     { l: "订单总数", v: fmtInt(tot.cnt), x: "张", cls: "" },
     { l: "已收票订单", v: fmtInt(tot.invCnt), x: "张", cls: "" },
     { l: "收票率", v: fmtPct(rate), x: fmtInt(tot.cnt - tot.invCnt) + " 张未收票", cls: "" }
-  ];
-  return '<div class="kpi-grid">' + cards.map(c =>
+  );
+  return '<div class="kpi-grid' + (simple ? " kpi-grid-3col" : "") + '">' + cards.map(c =>
     '<div class="kpi ' + c.cls + '">' +
       '<div class="kpi-l">' + c.l + '</div>' +
       '<div class="kpi-v">' + c.v + '</div>' +
@@ -1583,20 +1582,23 @@ function renderTables(data, dim, subs){
 
     const sumT = arr.reduce((s,o) => s + o.total, 0);
     const sumI = arr.reduce((s,o) => s + o.invoiced, 0);
+    const sumS = arr.reduce((s,o) => s + (o.submitted || 0), 0);
     const sumP = sumT - sumI;
     const sumC = arr.reduce((s,o) => s + o.cnt, 0);
     const sumIC = arr.reduce((s,o) => s + o.invCnt, 0);
 
-    let rowsHtml = arr.map(o =>
-      '<tr>' +
+    let rowsHtml = arr.map(o => {
+      const rate = o.total ? (o.submitted || 0) / o.total : 0;
+      return '<tr>' +
         '<td>' + dimLabel(o.key, dim) + '</td>' +
         '<td class="num">' + fmtMoneyFull(o.total) + '</td>' +
         '<td class="num">' + fmtMoneyFull(o.invoiced) + '</td>' +
+        '<td class="num">' + fmtMoneyFull(o.submitted || 0) + '</td>' +
         '<td class="num ' + (o.pending > 0 ? '' : 'mute') + '">' + fmtMoneyFull(o.pending) + '</td>' +
-        '<td class="num">' + fmtInt(o.cnt) + '</td>' +
-        '<td class="num">' + fmtInt(o.invCnt) + '</td>' +
-        '<td class="num"><span class="rate">' + fmtPct(o.rate) + '</span></td>' +
-      '</tr>').join("");
+        '<td style="width:110px"><div class="bar-bg"><div class="bar-fg" style="width:' +
+          (rate * 100).toFixed(1) + '%"></div></div></td>' +
+      '</tr>';
+    }).join("");
 
     html +=
       '<div class="sec">' +
@@ -1612,20 +1614,18 @@ function renderTables(data, dim, subs){
               '<th>' + unit + '</th>' +
               '<th class="num">税前总金额</th>' +
               '<th class="num">已收票金额</th>' +
+              '<th class="num">已交票金额</th>' +
               '<th class="num">未收票金额</th>' +
-              '<th class="num">订单数</th>' +
-              '<th class="num">已收票订单</th>' +
-              '<th class="num">收票率</th>' +
+              '<th>已交费用比例</th>' +
             '</tr></thead>' +
             '<tbody>' + rowsHtml + '</tbody>' +
             '<tfoot><tr>' +
               '<td>合计</td>' +
               '<td class="num">' + fmtMoneyFull(sumT) + '</td>' +
               '<td class="num">' + fmtMoneyFull(sumI) + '</td>' +
+              '<td class="num">' + fmtMoneyFull(sumS) + '</td>' +
               '<td class="num">' + fmtMoneyFull(sumP) + '</td>' +
-              '<td class="num">' + fmtInt(sumC) + '</td>' +
-              '<td class="num">' + fmtInt(sumIC) + '</td>' +
-              '<td class="num">' + fmtPct(sumC ? sumIC / sumC : 0) + '</td>' +
+              '<td></td>' +
             '</tr></tfoot>' +
           '</table></div>' +
         '</div>' +
@@ -1642,19 +1642,35 @@ function renderCharts(data, dim, subs, monthSel){
 
   if (isSingle){
 
+    if (subs.length > 1){
+      let sI = 0, sP = 0, sT = 0;
+      subs.forEach(t => { const o = data[t][0]; if (!o) return; sI += o.invoiced; sP += o.pending; sT += o.total; });
+      items.push({
+        id: "pA0" + uid,
+        title: "合计 · EPR税前总金额构成",
+        kind: "pie",
+        payload: {
+          labels: ["已收票金额", "未收票金额"],
+          values: [sI, sP],
+          colors: ["#2563eb", "#fbbf24"],
+          center: fmtMoney(sT),
+          centerSub: "EPR税前总金额"
+        }
+      });
+    }
     subs.forEach((t, idx) => {
       const o = data[t][0];
       if (!o) return;
       items.push({
         id: "pA" + uid + "_" + idx,
-        title: "Sub " + t + " · 金额构成",
+        title: "Sub " + t + " · EPR税前总金额构成",
         kind: "pie",
         payload: {
-          labels: ["已收票", "未收票"],
+          labels: ["已收票金额", "未收票金额"],
           values: [o.invoiced, o.pending],
           colors: ["#2563eb", "#fbbf24"],
           center: fmtMoney(o.total),
-          centerSub: "总额"
+          centerSub: "EPR税前总金额"
         }
       });
       items.push({
@@ -1662,11 +1678,11 @@ function renderCharts(data, dim, subs, monthSel){
         title: "Sub " + t + " · 订单构成",
         kind: "pie",
         payload: {
-          labels: ["已收票", "未收票"],
+          labels: ["已收票订单", "未收票订单"],
           values: [o.invCnt, o.cnt - o.invCnt],
           colors: ["#0f9d58", "#cbd5e1"],
-          center: fmtPct(o.rate),
-          centerSub: "收票率"
+          center: fmtInt(o.cnt) + " 张",
+          centerSub: "订单总数"
         }
       });
     });
@@ -1676,31 +1692,47 @@ function renderCharts(data, dim, subs, monthSel){
     subs.forEach(t => data[t].forEach(o => { sumI += o.invoiced; sumP += o.pending; }));
     items.push({
       id: "pAll" + uid,
-      title: "合计 · 金额构成",
+      title: "合计 · EPR税前总金额构成",
       kind: "pie",
       payload: {
-        labels: ["已收票", "未收票"],
+        labels: ["已收票金额", "未收票金额"],
         values: [sumI, sumP],
         colors: ["#2563eb", "#fbbf24"],
         center: fmtMoney(sumI + sumP),
-        centerSub: "总额"
+        centerSub: "EPR税前总金额"
       }
     });
 
     subs.forEach((t, idx) => {
-      let i = 0, c = 0, n = 0;
-      data[t].forEach(o => { i += o.invCnt; c += o.cnt; n += o.cnt - o.invCnt; });
+      const m = new Map(data[t].map(o => [o.key, o]));
+      const sI = data[t].reduce((s, o) => s + o.invoiced, 0);
+      const sP = data[t].reduce((s, o) => s + o.pending, 0);
+      const sT = sI + sP;
+      items.push({
+        id: "pS" + uid + "_" + idx,
+        title: "Sub " + t + " · EPR税前总金额构成",
+        kind: "pie",
+        payload: {
+          labels: ["已收票金额", "未收票金额"],
+          values: [sI, sP],
+          colors: ["#2563eb", "#fbbf24"],
+          center: fmtMoney(sT),
+          centerSub: "EPR税前总金额"
+        }
+      });
+      let i = 0, c = 0;
+      data[t].forEach(o => { i += o.invCnt; c += o.cnt; });
       if (!c) return;
       items.push({
         id: "pR" + uid + "_" + idx,
         title: "Sub " + t + " · 订单构成",
         kind: "pie",
         payload: {
-          labels: ["已收票", "未收票"],
-          values: [i, n],
+          labels: ["已收票订单", "未收票订单"],
+          values: [i, c - i],
           colors: ["#0f9d58", "#cbd5e1"],
-          center: fmtPct(c ? i / c : 0),
-          centerSub: "收票率"
+          center: fmtInt(c) + " 张",
+          centerSub: "订单总数"
         }
       });
     });
