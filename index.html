@@ -119,6 +119,16 @@
   .sec-t{font-size:15px;font-weight:600;display:flex;align-items:center;gap:9px}
   .pill{font-size:11px;font-weight:500;padding:2px 9px;border-radius:5px;background:var(--blue-bg);color:var(--blue)}
   .sec-m{font-size:12.5px;color:var(--dim)}
+  .ovsort-g{display:flex}
+  .ovsort{
+    font-size:12px;padding:4px 12px;border:1px solid var(--bd);background:var(--card);
+    color:var(--dim);cursor:pointer;white-space:nowrap;
+  }
+  .ovsort:first-child{border-radius:6px 0 0 6px}
+  .ovsort:last-child{border-radius:0 6px 6px 0}
+  .ovsort+.ovsort{margin-left:-1px}
+  .ovsort:hover{color:var(--blue)}
+  .ovsort.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500}
   .sec-b{padding:16px 18px}
 
   .tbl-wrap{overflow:auto;border-radius:8px;border:1px solid var(--bd);max-height:460px}
@@ -183,6 +193,7 @@
   .bdot{position:absolute;top:50%;width:5px;height:5px;border-radius:50%;background:#fff;border:1.5px solid #94a3b8;transform:translate(-50%,-50%);z-index:2}
   .bline-ml{display:flex;margin-top:5px}
   .bline-ml span{flex:1;text-align:center;font-size:11px;color:#8a94a6}
+  .kpi-v.over-t{color:#dc2626}
   .bline-ml span.over-t{color:#dc2626}
   .bq{border:1px solid var(--bd);border-radius:9px;padding:12px 14px 13px;background:#fcfdfe}
   .bq.now{border-color:#bfd3f8;background:#f8fbff;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
@@ -346,6 +357,7 @@ const CONFIG = {
     sub:       "M",
     amount:    "U",
     invoiceDate: "Z",
+    submitDate: "AB",
     supplier:  "J",
     dept:      "G",
     po:        "E",
@@ -360,7 +372,9 @@ const CONFIG = {
 
   strictDate: true,
 
-  emptyTokens: ["", "-", "--", "—", "/", "无", "na", "n/a", "null", "none", "未收", "未收到"]
+  emptyTokens: ["", "-", "--", "—", "/", "无", "na", "n/a", "null", "none", "未收", "未收到"],
+
+  yesTokens: ["是", "已收", "已收到", "收到", "y", "yes"]
 };
 
 const BUDGET = {
@@ -387,6 +401,7 @@ const I = {
   sub: colIdx(CONFIG.col.sub),
   amount: colIdx(CONFIG.col.amount),
   inv: colIdx(CONFIG.col.invoiceDate),
+  submit: colIdx(CONFIG.col.submitDate || "AB"),
   supplier: colIdx(CONFIG.col.supplier || "J"),
   dept: colIdx(CONFIG.col.dept || "G"),
   po: colIdx(CONFIG.col.po || "E"),
@@ -459,6 +474,8 @@ function parseYM(v){
 function hasInvoice(v){
   if (v === null || v === undefined) return false;
 
+  if (typeof v === "boolean") return v;
+
   if (v instanceof Date) return !isNaN(v.getTime());
 
   if (typeof v === "number" && isFinite(v)){
@@ -478,6 +495,8 @@ function hasInvoice(v){
 
   const low = s.toLowerCase().replace(/\s+/g, "");
   if (CONFIG.emptyTokens.some(t => t && low === t)) return false;
+
+  if (CONFIG.yesTokens.some(t => low === t)) return true;
 
   if (!CONFIG.strictDate) return true;
 
@@ -578,6 +597,7 @@ function parseWorkbook(buf, url){
       m: ym.m,
       amount: parseNum(cellVal(r, I.amount)),
       invoiced: hasInvoice(cellVal(r, I.inv)),
+      submitted: hasInvoice(cellVal(r, I.submit)),
       supplier: (function(){
         const s = cellVal(r, I.supplier);
         return s === null || s === undefined ? "" : String(s).trim();
@@ -806,6 +826,13 @@ function aggByDim(rows, dim, sub, allYears){
 }
 
 let currentView = "overview";
+let overdueSort = "days";
+
+function setOverdueSort(m){
+  if (overdueSort === m) return;
+  overdueSort = m;
+  render();
+}
 
 function render(){
   charts.forEach(c => { try { c.destroy(); } catch(e){} });
@@ -880,26 +907,29 @@ function renderDeptView(rows, subs){
 
   const map = new Map();
   const ccAgg = new Map();
-  const tot = { total: 0, invoiced: 0, cnt: 0, invCnt: 0 };
+  const tot = { total: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0 };
   for (const r of deptRows){
     if (!map.has(r.dept)) map.set(r.dept, {
-      name: r.dept, total: 0, invoiced: 0, pending: 0, cnt: 0, invCnt: 0
+      name: r.dept, total: 0, invoiced: 0, pending: 0, submitted: 0, cnt: 0, invCnt: 0
     });
     const o = map.get(r.dept);
     o.total += r.amount;
     o.cnt++;
     if (r.invoiced){ o.invoiced += r.amount; o.invCnt++; }
+    if (r.submitted){ o.submitted += r.amount; }
     tot.total += r.amount; tot.cnt++;
     if (r.invoiced){ tot.invoiced += r.amount; tot.invCnt++; }
+    if (r.submitted){ tot.submitted += r.amount; }
 
     const cc = r.costCenter && r.costCenter !== "" ? r.costCenter : "（未填 Cost Center）";
     {
       if (!ccAgg.has(r.dept)) ccAgg.set(r.dept, new Map());
       const cm = ccAgg.get(r.dept);
-      if (!cm.has(cc)) cm.set(cc, { amount: 0, invoiced: 0, cnt: 0, invCnt: 0 });
+      if (!cm.has(cc)) cm.set(cc, { amount: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0 });
       const co = cm.get(cc);
       co.amount += r.amount; co.cnt++;
       if (r.invoiced){ co.invoiced += r.amount; co.invCnt++; }
+      if (r.submitted){ co.submitted += r.amount; }
     }
   }
 
@@ -945,21 +975,20 @@ function toggleAllDept(a){
 function renderDeptTable(list, ccAgg){
   const sumT  = list.reduce((s,o) => s + o.total, 0);
   const sumI  = list.reduce((s,o) => s + o.invoiced, 0);
-  const sumC  = list.reduce((s,o) => s + o.cnt, 0);
-  const sumIC = list.reduce((s,o) => s + o.invCnt, 0);
+  const sumS  = list.reduce((s,o) => s + (o.submitted || 0), 0);
 
   const rowsHtml = list.map((o, i) => {
+    const rate = o.total ? (o.submitted || 0) / o.total : 0;
     const deptRow =
       '<tr class="dept-row" data-di="' + i + '" onclick="toggleDept(this)" title="点击折叠/展开成本中心明细">' +
         '<td><span class="caret">▼</span><span class="rank">' + (i + 1) + '</span><b>' + esc(o.name) + '</b></td>' +
         '<td class="num"><b>' + fmtMoneyFull(o.total) + '</b></td>' +
         '<td class="num">' + fmtMoneyFull(o.invoiced) + '</td>' +
+        '<td class="num">' + fmtMoneyFull(o.submitted || 0) + '</td>' +
         '<td class="num ' + (o.pending > 0 ? '' : 'mute') + '">' + fmtMoneyFull(o.pending) + '</td>' +
-        '<td class="num">' + fmtInt(o.cnt) + '</td>' +
-        '<td class="num">' + fmtInt(o.invCnt) + '</td>' +
-        '<td class="num"><span class="rate">' + fmtPct(o.rate) + '</span></td>' +
+        '<td class="num"><span class="rate">' + fmtPct(rate) + '</span></td>' +
         '<td style="width:110px"><div class="bar-bg"><div class="bar-fg" style="width:' +
-          (sumT ? (o.total / sumT * 100).toFixed(1) : 0) + '%"></div></div></td>' +
+          (rate * 100).toFixed(1) + '%"></div></div></td>' +
       '</tr>';
 
     const cm = ccAgg && ccAgg.get(o.name);
@@ -967,18 +996,19 @@ function renderDeptTable(list, ccAgg){
     if (cm && cm.size){
       const ccs = [...cm.entries()].map(([name, v]) => ({ name, ...v }))
         .sort((a, b) => b.amount - a.amount);
-      ccRows = ccs.map(c =>
-        '<tr class="cc-row" data-p="' + i + '">' +
+      ccRows = ccs.map(c => {
+        const cr = c.amount ? (c.submitted || 0) / c.amount : 0;
+        return '<tr class="cc-row" data-p="' + i + '">' +
           '<td style="padding-left:38px">└ ' + esc(c.name) + '</td>' +
           '<td class="num">' + fmtMoneyFull(c.amount) + '</td>' +
           '<td class="num">' + fmtMoneyFull(c.invoiced) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(c.submitted || 0) + '</td>' +
           '<td class="num">' + fmtMoneyFull(c.amount - c.invoiced) + '</td>' +
-          '<td class="num">' + fmtInt(c.cnt) + '</td>' +
-          '<td class="num">' + fmtInt(c.invCnt) + '</td>' +
-          '<td class="num">' + fmtPct(c.cnt ? c.invCnt / c.cnt : 0) + '</td>' +
+          '<td class="num">' + fmtPct(cr) + '</td>' +
           '<td><div class="bar-bg"><div class="bar-fg bar-rest" style="width:' +
-            (sumT ? (c.amount / sumT * 100).toFixed(1) : 0) + '%"></div></div></td>' +
-        '</tr>').join("");
+            (cr * 100).toFixed(1) + '%"></div></div></td>' +
+        '</tr>';
+      }).join("");
     }
     return deptRow + ccRows;
   }).join("");
@@ -994,21 +1024,19 @@ function renderDeptTable(list, ccAgg){
           '<th>部门</th>' +
           '<th class="num">税前总金额</th>' +
           '<th class="num">已收票金额</th>' +
+          '<th class="num">已交票金额</th>' +
           '<th class="num">未收票金额</th>' +
-          '<th class="num">订单数</th>' +
-          '<th class="num">已收票订单</th>' +
-          '<th class="num">收票率</th>' +
-          '<th>占比</th>' +
+          '<th class="num">交票费用率</th>' +
+          '<th>交票比例</th>' +
         '</tr></thead>' +
         '<tbody>' + rowsHtml + '</tbody>' +
         '<tfoot><tr>' +
           '<td>合计</td>' +
           '<td class="num">' + fmtMoneyFull(sumT) + '</td>' +
           '<td class="num">' + fmtMoneyFull(sumI) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(sumS) + '</td>' +
           '<td class="num">' + fmtMoneyFull(sumT - sumI) + '</td>' +
-          '<td class="num">' + fmtInt(sumC) + '</td>' +
-          '<td class="num">' + fmtInt(sumIC) + '</td>' +
-          '<td class="num">' + fmtPct(sumC ? sumIC / sumC : 0) + '</td>' +
+          '<td class="num">' + fmtPct(sumT ? sumS / sumT : 0) + '</td>' +
           '<td></td>' +
         '</tr></tfoot>' +
       '</table></div>' +
@@ -1077,18 +1105,19 @@ function renderOverviewView(rows, dim, oneYear, subs){
 
   const now = new Date();
 
-  const tot = { total: 0, invoiced: 0, cnt: 0, invCnt: 0 };
+  const tot = { total: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0, subCnt: 0 };
   let overdueAmt = 0, overdueCnt = 0;
   for (const r of rows){
     tot.total += r.amount;
     tot.cnt++;
     if (r.invoiced){ tot.invoiced += r.amount; tot.invCnt++; }
+    if (r.submitted){ tot.submitted += r.amount; tot.subCnt++; }
     else {
       const days = Math.floor((now.getTime() - Date.UTC(r.ymd.y, r.ymd.m - 1, r.ymd.d)) / 86400000);
       if (days > OVERDUE_DAYS){ overdueAmt += r.amount; overdueCnt++; }
     }
   }
-  const pendingAmt = tot.total - tot.invoiced;
+  const onHand = tot.invoiced - tot.submitted;
 
   const parts = [];
   parts.push(yLabel(selYears()));
@@ -1099,19 +1128,17 @@ function renderOverviewView(rows, dim, oneYear, subs){
 
   const kpiHtml =
     '<div class="kpi-grid kpi-grid-4col">' +
-      '<div class="kpi hl"><div class="kpi-l">税前总金额合计</div>' +
+      '<div class="kpi hl"><div class="kpi-l">EPR税前总金额合计</div>' +
         '<div class="kpi-v">' + fmtMoney(tot.total) + '</div>' +
         '<div class="kpi-x">' + fmtMoneyFull(tot.total) + '</div></div>' +
       '<div class="kpi"><div class="kpi-l">已收票金额</div>' +
         '<div class="kpi-v">' + fmtMoney(tot.invoiced) + '</div>' +
         '<div class="kpi-x">占比 ' + fmtPct(tot.total ? tot.invoiced / tot.total : 0) + '</div></div>' +
-      '<div class="kpi warn"><div class="kpi-l">未收票金额</div>' +
-        '<div class="kpi-v">' + fmtMoney(pendingAmt) + '</div>' +
-        '<div class="kpi-x">' + fmtInt(tot.cnt - tot.invCnt) + ' 张未收票</div></div>' +
-      '<div class="kpi" style="border-left:3px solid #ef4444"><div class="kpi-l">超期未收票（&gt;3个月）</div>' +
-        '<div class="kpi-v">' + fmtMoney(overdueAmt) + '</div>' +
-        '<div class="kpi-x">' + fmtInt(overdueCnt) + ' 张 · 占未收票 ' +
-          fmtPct(pendingAmt ? overdueAmt / pendingAmt : 0) + '</div></div>' +
+      '<div class="kpi warn"><div class="kpi-l">已交票金额</div>' +
+        '<div class="kpi-v">' + fmtMoney(tot.submitted) + '</div>' +
+        '<div class="kpi-x">' + fmtInt(tot.subCnt) + ' 张已交票</div></div>' +
+      '<div class="kpi' + (onHand < 0 ? '" style="border-left:3px solid #ef4444' : '') + '"><div class="kpi-l">On Hand</div>' +
+        '<div class="kpi-v' + (onHand < 0 ? ' over-t' : '') + '">' + fmtMoney(onHand) + '</div></div>' +
     '</div>';
 
   $("content").innerHTML =
@@ -1229,7 +1256,7 @@ function renderOverdueView(rows, subs){
     .filter(r => !r.invoiced)
     .map(r => ({ ...r, days: daysBetween(r.ymd, now) }))
     .filter(r => r.days > OVERDUE_DAYS)
-    .sort((a, b) => b.days - a.days);
+    .sort((a, b) => overdueSort === "amount" ? b.amount - a.amount : b.days - a.days);
 
   if (!overdue.length){
     $("sub").textContent = "当前筛选下没有超期未收票";
@@ -1242,7 +1269,7 @@ function renderOverdueView(rows, subs){
   }
 
   const sumAmt = overdue.reduce((s, r) => s + r.amount, 0);
-  const maxDays = overdue[0].days;
+  const maxDays = Math.max(...overdue.map(r => r.days));
   const avgDays = Math.round(overdue.reduce((s, r) => s + r.days, 0) / overdue.length);
 
   const bucketAgg = BUCKETS.map(b => {
@@ -1384,10 +1411,19 @@ function renderOverdueTable(overdue){
 
   const sum = overdue.reduce((s, r) => s + r.amount, 0);
 
+  const mkBtn = (mode, label) =>
+    '<button class="ovsort' + (overdueSort === mode ? " on" : "") + '" onclick="setOverdueSort(\'' + mode + '\')">' + label + '</button>';
+
   return '<div class="sec">' +
     '<div class="sec-h">' +
       '<div class="sec-t">超期明细清单</div>' +
-      '<div class="sec-m">超期订单数量：' + fmtInt(overdue.length) + ' 张</div>' +
+      '<div class="sec-m" style="display:flex;align-items:center;gap:12px">' +
+        '<span>超期订单数量：' + fmtInt(overdue.length) + ' 张</span>' +
+        '<div class="ovsort-g">' +
+          mkBtn("days", "按超期时间排序") +
+          mkBtn("amount", "按金额排序") +
+        '</div>' +
+      '</div>' +
     '</div>' +
     '<div class="sec-b">' +
       '<div class="tbl-wrap" style="max-height:520px"><table style="min-width:900px">' +
@@ -2055,7 +2091,6 @@ function renderBudgetLines(){
       '<div class="sec-t">预算执行 <span class="pill">' +
         (oneYear ? esc(oneYear) + ' 年' : years.length + ' 个年份') + '</span></div>' +
       '<div class="sec-m" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' +
-        '<span>上针 = 费用进度（超过下针 = 花钱快于时间，超预算变红） · 下针 = 时间进度 · 悬停月份看明细 · 不受月份/Sub 筛选影响</span>' +
         '<button id="btnBudget" style="font-size:12.5px;padding:5px 12px">设置预算</button>' +
       '</div>' +
     '</div>' +
