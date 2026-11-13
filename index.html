@@ -89,8 +89,10 @@
   .kpi-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));margin-bottom:18px}
   .kpi{
     background:var(--card);border:1px solid var(--bd);border-radius:var(--r);
-    padding:14px 16px;box-shadow:var(--sh);
+    padding:14px 16px;box-shadow:var(--sh);position:relative;
   }
+  .kpi.has-ring{padding-right:76px}
+  .kring{position:absolute;right:14px;top:50%;transform:translateY(-50%)}
   .kpi-l{font-size:12px;color:var(--dim);margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .kpi-v{font-size:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.2}
   .kpi-v small{font-size:12px;font-weight:500;color:var(--dim);margin-left:3px;letter-spacing:0}
@@ -873,9 +875,10 @@ function render(){
   const data = {};
   subs.forEach(t => data[t] = aggByDim(rows, dim, t, !oneYear));
 
-  const tot = { total: 0, invoiced: 0, cnt: 0, invCnt: 0 };
+  const tot = { total: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0 };
   subs.forEach(t => data[t].forEach(o => {
     tot.total += o.total; tot.invoiced += o.invoiced;
+    tot.submitted += o.submitted || 0;
     tot.cnt += o.cnt; tot.invCnt += o.invCnt;
   }));
   const pendingAmt = tot.total - tot.invoiced;
@@ -1128,12 +1131,14 @@ function renderOverviewView(rows, dim, oneYear, subs){
       '<div class="kpi hl"><div class="kpi-l">EPR税前总金额合计</div>' +
         '<div class="kpi-v">' + fmtMoney(tot.total) + '</div>' +
         '<div class="kpi-x">' + fmtMoneyFull(tot.total) + '</div></div>' +
-      '<div class="kpi"><div class="kpi-l">已收票金额</div>' +
+      '<div class="kpi has-ring"><div class="kpi-l">已收票金额</div>' +
         '<div class="kpi-v">' + fmtMoney(tot.invoiced) + '</div>' +
-        '<div class="kpi-x">占比 ' + fmtPct(tot.total ? tot.invoiced / tot.total : 0) + '</div></div>' +
-      '<div class="kpi warn"><div class="kpi-l">已交票金额</div>' +
+        '<div class="kpi-x">占比 ' + fmtPct(tot.total ? tot.invoiced / tot.total : 0) + '</div>' +
+        kring(tot.total ? tot.invoiced / tot.total : 0, "#2563eb") + '</div>' +
+      '<div class="kpi warn has-ring"><div class="kpi-l">已交票金额</div>' +
         '<div class="kpi-v">' + fmtMoney(tot.submitted) + '</div>' +
-        '<div class="kpi-x">' + fmtInt(tot.subCnt) + ' 张已交票</div></div>' +
+        '<div class="kpi-x">' + fmtInt(tot.subCnt) + ' 张已交票</div>' +
+        kring(tot.total ? (tot.submitted || 0) / tot.total : 0, "#f59e0b") + '</div>' +
       '<div class="kpi' + (onHand < 0 ? '" style="border-left:3px solid #ef4444' : '') + '"><div class="kpi-l">On Hand</div>' +
         '<div class="kpi-v' + (onHand < 0 ? ' over-t' : '') + '">' + fmtMoney(onHand) + '</div></div>' +
     '</div>';
@@ -1446,22 +1451,42 @@ function renderOverdueTable(overdue){
   '</div>';
 }
 
+function kring(ratio, color){
+  const r = isFinite(ratio) ? ratio : 0;
+  const v = Math.max(0, Math.min(r, 1));
+  const c = 2 * Math.PI * 21;
+  return '<svg class="kring" width="52" height="52" viewBox="0 0 52 52">' +
+    '<circle cx="26" cy="26" r="21" fill="none" stroke="#eef2f7" stroke-width="5"/>' +
+    (v > 0 ? '<circle cx="26" cy="26" r="21" fill="none" stroke="' + color + '" stroke-width="5" ' +
+      'stroke-linecap="round" stroke-dasharray="' + (v * c).toFixed(2) + ' ' + c.toFixed(2) + '" ' +
+      'transform="rotate(-90 26 26)"/>' : '') +
+    '<text x="26" y="26" text-anchor="middle" dominant-baseline="central" font-size="10" fill="#6b7688">' +
+      Math.round(r * 100) + '%</text>' +
+  '</svg>';
+}
+
 function renderKpis(tot, pendingAmt, rate, totalLabel, simple){
+  const total = tot.total || 0;
   const cards = [
     { l: totalLabel || "税前总金额合计", v: fmtMoney(tot.total), x: fmtMoneyFull(tot.total), cls: "hl" },
-    { l: "已收票金额", v: fmtMoney(tot.invoiced), x: "占比 " + fmtPct(tot.total ? tot.invoiced/tot.total : 0), cls: "" },
-    { l: "未收票金额", v: fmtMoney(pendingAmt), x: "待跟进", cls: "warn" }
+    { l: "已收票金额", v: fmtMoney(tot.invoiced), x: "占比 " + fmtPct(total ? tot.invoiced/total : 0), cls: "",
+      ring: { r: total ? tot.invoiced/total : 0, c: "#2563eb" } },
+    { l: "已交票金额", v: fmtMoney(tot.submitted || 0), x: "占比 " + fmtPct(total ? (tot.submitted || 0)/total : 0), cls: "",
+      ring: { r: total ? (tot.submitted || 0)/total : 0, c: "#f59e0b" } },
+    { l: "未收票金额", v: fmtMoney(pendingAmt), x: "待跟进", cls: "warn",
+      ring: simple ? { r: total ? pendingAmt/total : 0, c: "#fbbf24" } : null }
   ];
   if (!simple) cards.push(
     { l: "订单总数", v: fmtInt(tot.cnt), x: "张", cls: "" },
     { l: "已收票订单", v: fmtInt(tot.invCnt), x: "张", cls: "" },
     { l: "收票率", v: fmtPct(rate), x: fmtInt(tot.cnt - tot.invCnt) + " 张未收票", cls: "" }
   );
-  return '<div class="kpi-grid' + (simple ? " kpi-grid-3col" : "") + '">' + cards.map(c =>
-    '<div class="kpi ' + c.cls + '">' +
+  return '<div class="kpi-grid' + (simple ? " kpi-grid-4col" : "") + '">' + cards.map(c =>
+    '<div class="kpi ' + c.cls + (c.ring ? ' has-ring' : '') + '">' +
       '<div class="kpi-l">' + c.l + '</div>' +
       '<div class="kpi-v">' + c.v + '</div>' +
       '<div class="kpi-x">' + c.x + '</div>' +
+      (c.ring ? kring(c.ring.r, c.ring.c) : '') +
     '</div>').join("") + '</div>';
 }
 
