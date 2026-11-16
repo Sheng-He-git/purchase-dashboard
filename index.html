@@ -397,12 +397,11 @@
 
 const CONFIG = {
 
-  // ① 要写死文件路径，就写在这里（三个 Excel 的文件名）。
-  //    只有「用 http(s) 地址打开页面」时才生效：
-  //      · 部署到 SharePoint / 内网站点
-  //      · 或者双击 start-dashboard.bat 起本地服务（http://localhost:8765）
-  //    双击 index.html（file://）时这段配置无效——浏览器禁止页面读本地文件，
-  //    这种情况下靠「记住上次选择的文件」来免去重选。
+  // ① 文件名清单（仅作「兜底」用）。
+  //    双击 start-dashboard.bat 打开时，页面会先向本地服务要目录清单，
+  //    文件夹里有几个 Excel 就读几个 —— 加减文件不用改这里。
+  //    只有部署到 SharePoint 等纯静态位置（没有 /__list 接口）时，才按下面这份清单读。
+  //    清单里写几个就读几个，末尾不要留多余逗号。
   files: [
     "0-2026 JS PR List-Xiao Xia.xlsx",
     "2026 JS PR List-MRD-Lin Zhu.xlsx",
@@ -896,14 +895,27 @@ function finishLoad(results, errors, extraNotes){
 }
 
 /**
- * 自动加载 CONFIG.files 里的文件（相对 index.html 所在目录）。
+ * 自动加载 Excel。
+ * ① 优先：向本地服务（start-dashboard.bat）要目录清单 → 文件夹里有几个就读几个，不用维护文件名清单。
+ * ② 退回：静态站点（SharePoint 等）没有这个接口，就按 CONFIG.files 里写死的文件名读。
  * 返回 true = 已成功渲染；返回字符串 = 需要提示用户的原因；返回 false = 静默走手动选择。
  */
+async function listServedFiles(dir){
+  const q = dir ? ("?dir=" + encodeURIComponent(dir)) : "";
+  const res = await fetch("__list" + q, { cache: "no-store" });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  const list = (data && Array.isArray(data.files)) ? data.files : [];
+  const base = dir.replace(/[\\/]+$/, "");
+  return list
+    .map(f => String((f && f.name) || ""))
+    .filter(n => n && !/^~\$/.test(n))                    // 跳过 Excel 打开时的 ~$ 锁文件
+    .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"))
+    .map(n => ({ name: n, path: base ? base + "/" + n : n }));
+}
+
 async function autoLoadFiles(){
   if (!CONFIG.autoLoad) return false;
-
-  const names = (CONFIG.files || []).filter(Boolean);
-  if (!names.length) return false;
 
   const dir = String(CONFIG.baseDir || "").trim();
   const pathOf = n => {
@@ -916,22 +928,36 @@ async function autoLoadFiles(){
   if (location.protocol === "file:"){
     return '<div class="hint"><b>没自动加载数据：当前是本地双击打开</b>' +
       '浏览器禁止页面直接读取同目录的 Excel（安全限制，不是代码问题）。' +
-      '请点右上角「选择 Excel 文件」手动选一次；' +
-      '把页面和三个 Excel 放到 SharePoint 站点里用 http(s) 打开，就会自动加载，不用再选。</div>';
+      '请点右上角「选择 Excel 文件」手动选一次（可以多选，选几个就分析几个）；' +
+      '想每次打开都自动出数，双击 <b>start-dashboard.bat</b>——它会自动扫描文件夹里所有 Excel 并全部读取。</div>';
   }
 
-  FILE_STATE = names.map(n => ({ name: n, state: "load" }));
+  // ① 问本地服务要目录清单
+  let items = [];
+  let discovered = false;
+  try {
+    const found = await listServedFiles(dir);
+    if (found.length){ items = found; discovered = true; }
+  } catch (e){ /* 静态站点没有 /__list 接口，走 ② */ }
+
+  // ② 退回写死的文件名清单
+  if (!items.length){
+    items = (CONFIG.files || []).filter(Boolean).map(n => ({ name: n, path: pathOf(n) }));
+  }
+  if (!items.length) return false;
+
+  FILE_STATE = items.map(it => ({ name: it.name, state: "load" }));
   renderFileChips(FILE_STATE);
-  $("sub").textContent = "正在自动读取配置的 Excel…";
-  $("content").innerHTML = '<div class="sec"><div class="empty">正在自动读取 ' + names.length + ' 个文件…</div></div>';
+  $("sub").textContent = "正在自动读取 " + items.length + " 个 Excel…";
+  $("content").innerHTML = '<div class="sec"><div class="empty">正在自动读取 ' + items.length + ' 个文件…</div></div>';
 
   const results = [];
   const errors = [];
   const missing = [];
 
-  for (let i = 0; i < names.length; i++){
-    const name = names[i];
-    const path = pathOf(name);
+  for (let i = 0; i < items.length; i++){
+    const name = items[i].name;
+    const path = items[i].path;
     try {
       const res = await fetch(path, { cache: "no-store", credentials: "same-origin" });
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -950,14 +976,20 @@ async function autoLoadFiles(){
 
   if (!results.length){
     FILE_STATE = [];
-    return '<div class="err"><b>配置里的 Excel 都没取到</b>' +
+    return '<div class="err"><b>没取到任何 Excel</b>' +
       (missing.length ? '未找到：' + missing.map(n => '<code>' + esc(n) + '</code>').join("、") + '<br>' : '') +
-      '请确认：① 文件和 index.html 在同一目录；② 文件名与 <code>CONFIG.files</code> 一字不差（空格、括号、中文都要一致）；' +
-      '③ 当前账号对该目录有读取权限。也可以点右上角「选择 Excel 文件」手动加载。</div>';
+      (discovered
+        ? '文件夹里的 Excel 都读不了，请确认文件没被加密/占用，或改用手动选择。'
+        : '请确认：① 文件和 index.html 在同一目录；② 文件名与 <code>CONFIG.files</code> 一字不差（空格、括号、中文都要一致）；' +
+          '③ 当前账号对该目录有读取权限。也可以点右上角「选择 Excel 文件」手动加载。') +
+      '</div>';
   }
 
   const extra = [];
-  if (missing.length){
+  if (discovered){
+    extra.push('<div class="hint">已自动扫描文件夹，读取了 <b>' + items.length + ' 个 Excel</b>：' +
+      '以后加减文件不用改代码，重新打开页面（或刷新）就会按新的文件数量重新统计。</div>');
+  } else if (missing.length){
     extra.push('<div class="hint">有 ' + missing.length + ' 个文件没取到：' +
       missing.map(n => '<code>' + esc(n) + '</code>').join("、") +
       '。当前只统计已读到的文件，需要完整数据请补齐文件名或手动选择。</div>');

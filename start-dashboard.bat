@@ -133,20 +133,53 @@ while ($true) {
 
       if ($target -ne "") {
         if ($target -like "http*") { $target = ([System.Uri]$target).AbsolutePath }
-        $target = ($target -split '\?')[0]
+
+        $query = ""
+        $qi = $target.IndexOf("?")
+        if ($qi -ge 0) {
+          $query = $target.Substring($qi + 1)
+          $target = $target.Substring(0, $qi)
+        }
         $target = [System.Uri]::UnescapeDataString($target)
-        if ($target -eq "" -or $target -eq "/") { $target = "/index.html" }
 
-        $rel = ($target.TrimStart('/') -replace '/', '\')
-        $full = [System.IO.Path]::GetFullPath((Join-Path $Root $rel))
+        $isList = ($target -eq "/__list")
+        $full = $null
+        $inside = $false
 
-        if (Test-Path -LiteralPath $full -PathType Container) {
-          $full = [System.IO.Path]::GetFullPath((Join-Path $full "index.html"))
+        if (-not $isList) {
+          if ($target -eq "" -or $target -eq "/") { $target = "/index.html" }
+          $rel = ($target.TrimStart('/') -replace '/', '\')
+          $full = [System.IO.Path]::GetFullPath((Join-Path $Root $rel))
+          if (Test-Path -LiteralPath $full -PathType Container) {
+            $full = [System.IO.Path]::GetFullPath((Join-Path $full "index.html"))
+          }
+          $inside = $full.StartsWith($Root + "\", [System.StringComparison]::OrdinalIgnoreCase) -or ($full -eq $Root)
         }
 
-        $inside = $full.StartsWith($Root + "\", [System.StringComparison]::OrdinalIgnoreCase) -or ($full -eq $Root)
-
-        if (-not $inside) {
+        if ($isList) {
+          # 目录清单：页面用它实现「文件夹里有几个 Excel 就读几个」
+          $sub = ""
+          if ($query -match 'dir=([^&]*)') { $sub = [System.Uri]::UnescapeDataString($matches[1]) }
+          $listDir = $Root
+          if ($sub.Trim() -ne "") {
+            $listDir = [System.IO.Path]::GetFullPath((Join-Path $Root ($sub.Trim() -replace '/', '\')))
+          }
+          $names = @()
+          $okDir = $listDir.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)
+          if ($okDir -and (Test-Path -LiteralPath $listDir -PathType Container)) {
+            Get-ChildItem -LiteralPath $listDir -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -match '^\.(xlsx|xlsm|xls|csv)$' -and $_.Name -notlike '~$*' -and $_.Name -notlike '.*' } |
+              Sort-Object Name |
+              ForEach-Object {
+                $safe = $_.Name.Replace('\', '\\').Replace('"', '\"')
+                $names += '{"name":"' + $safe + '","size":' + $_.Length + '}'
+              }
+          }
+          $json = '{"files":[' + ($names -join ',') + ']}'
+          $body = [System.Text.Encoding]::UTF8.GetBytes($json)
+          $head = "HTTP/1.1 200 OK`r`nContent-Type: application/json; charset=utf-8`r`nContent-Length: $($body.Length)`r`nCache-Control: no-store`r`nConnection: close`r`n`r`n"
+          Write-Host ("{0}  200  /__list  ({1} file(s))" -f (Get-Date -Format "HH:mm:ss"), @($names).Count)
+        } elseif (-not $inside) {
           $body = [System.Text.Encoding]::UTF8.GetBytes("403 Forbidden")
           $head = "HTTP/1.1 403 Forbidden`r`nContent-Type: text/plain; charset=utf-8`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n"
         } elseif (Test-Path -LiteralPath $full -PathType Leaf) {
