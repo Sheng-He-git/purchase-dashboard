@@ -3,44 +3,35 @@ chcp 65001 >nul
 cd /d "%~dp0"
 title Invoice Dashboard - local server
 
+rem ============================================================
+rem  Only ONE thing to change here: the port number below.
+rem  If it says "port already in use", try 8770 / 8800 / 8899.
+rem ============================================================
+set PORT=8765
+
 echo ==========================================
 echo  Invoice Dashboard - local server
 echo ==========================================
+echo  Folder : %cd%
+echo  URL    : http://localhost:%PORT%/index.html
 echo.
-echo Serving folder:
-echo   %cd%
-echo URL:
-echo   http://localhost:8765/index.html
-echo.
-echo The browser will open in 2 seconds.
-echo Keep this window open while using the dashboard.
-echo Close this window to stop the server.
+echo  No Python needed. Keep this window open
+echo  while using the dashboard; close it to stop.
 echo.
 
-start "" /b powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep -Seconds 2; Start-Process 'http://localhost:8765/index.html'"
+start "" /b powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep -Seconds 2; Start-Process 'http://localhost:%PORT%/index.html'"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0serve.ps1" -Port %PORT%
 
-rem --- engine 1: Python (if really usable) ---
-where python >nul 2>nul
-if errorlevel 1 goto :use_ps
-python -c "import sys" >nul 2>nul
-if errorlevel 1 goto :use_ps
-
-echo Engine: Python
-python -m http.server 8765
-goto :end
-
-rem --- engine 2: PowerShell (always present on Windows 10/11) ---
-:use_ps
-echo Engine: PowerShell (built in, Python not needed)
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0serve.ps1" -Port 8765
 if errorlevel 1 goto :failed
 goto :end
 
 :failed
 echo.
 echo [WARN] The local server could not start.
-echo        You can still just double-click index.html - the dashboard
-echo        will reload the files you picked last time (no need to pick again).
+echo        Reason is usually: port %PORT% is already used by another program.
+echo        Fix: open this file, change  set PORT=%PORT%  to 8770 or 8800, save, run again.
+echo        Alternative: just double-click index.html - the dashboard will
+echo        reload the files you picked last time (no need to pick again).
 echo.
 pause
 

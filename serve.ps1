@@ -45,7 +45,9 @@ try {
   Write-Host ""
   Write-Host "[ERROR] Cannot listen on port $Port (probably already in use)." -ForegroundColor Red
   Write-Host "        Close the other server window and run start-dashboard.bat again." -ForegroundColor Red
-  Write-Host "        To use another port, edit 8765 in start-dashboard.bat AND in this file." -ForegroundColor Red
+  Write-Host "        To use another port, open start-dashboard.bat and change the line" -ForegroundColor Red
+  Write-Host "            set PORT=8765" -ForegroundColor Red
+  Write-Host "        to a free number such as 8770, 8800 or 8899." -ForegroundColor Red
   Write-Host ""
   exit 1
 }
