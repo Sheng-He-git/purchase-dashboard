@@ -1,0 +1,3410 @@
+@echo off
+setlocal
+title Procurement Data Dashboard - JinShan
+set "DASH_FILE=%~f0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:DASH_FILE,[Text.Encoding]::UTF8); $m1='#<'+'PS>'; $m2='#</'+'PS>'; $a=$t.IndexOf($m1)+$m1.Length; $b=$t.IndexOf($m2); iex $t.Substring($a,$b-$a)"
+if errorlevel 1 pause
+exit /b
+
+#<PS>
+# ===== 内置本地服务（请勿修改此段，除非你清楚在做什么）=====
+# 作用：把下方的看板网页和本文件夹里的 Excel 通过 http://localhost 提供给浏览器，
+#       看板即可自动扫描并读取本文件夹中的所有 Excel。关闭这个黑色窗口即停止服务。
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$file = $env:DASH_FILE
+$dir  = Split-Path -Parent $file
+$txt  = [IO.File]::ReadAllText($file, [Text.Encoding]::UTF8)
+$hm   = '<!--HTML' + '_BEGIN-->'
+$html = $txt.Substring($txt.IndexOf($hm) + $hm.Length)
+$htmlBytes = [Text.Encoding]::UTF8.GetBytes($html)
+
+$listener = $null; $port = 0
+foreach ($p in 8765..8799) {
+  try {
+    $l = New-Object Net.HttpListener
+    $l.Prefixes.Add("http://localhost:$p/")
+    $l.Start(); $listener = $l; $port = $p; break
+  } catch { }
+}
+if (-not $listener) { Write-Host '无法启动本地服务：8765-8799 端口都被占用。'; exit 1 }
+
+$url = "http://localhost:$port/"
+Write-Host ''
+Write-Host '  Procurement Data Dashboard - JinShan'
+Write-Host "  看板已启动：$url"
+Write-Host "  数据文件夹：$dir"
+Write-Host '  使用期间请不要关闭本窗口；关闭窗口即退出。'
+Write-Host ''
+Start-Process $url
+
+$dirFull = [IO.Path]::GetFullPath($dir).TrimEnd('\') + '\'
+while ($listener.IsListening) {
+  $ctx = $listener.GetContext()
+  $res = $ctx.Response
+  try {
+    $path = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath).TrimStart('/')
+    if ($path -eq '' -or $path -eq 'index.html') {
+      $res.ContentType = 'text/html; charset=utf-8'
+      $bytes = $htmlBytes
+    }
+    elseif ($path -eq '__list') {
+      $files = @(Get-ChildItem -LiteralPath $dir -File |
+        Where-Object { $_.Extension -match '^\.(xlsx|xls|xlsm|csv)$' -and $_.Name -notlike '~$*' } |
+        ForEach-Object { @{ name = $_.Name } })
+      $json = (@{ files = $files } | ConvertTo-Json -Depth 4 -Compress)
+      $res.ContentType = 'application/json; charset=utf-8'
+      $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+    }
+    else {
+      $full = [IO.Path]::GetFullPath((Join-Path $dir $path))
+      if ($full.StartsWith($dirFull, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $full -PathType Leaf)) {
+        $fs = [IO.File]::Open($full, 'Open', 'Read', 'ReadWrite')   # Excel 正在打开时也能读
+        try { $ms = New-Object IO.MemoryStream; $fs.CopyTo($ms); $bytes = $ms.ToArray() } finally { $fs.Close() }
+        $res.ContentType = 'application/octet-stream'
+      } else {
+        $res.StatusCode = 404
+        $bytes = [Text.Encoding]::UTF8.GetBytes('not found')
+      }
+    }
+    $res.Headers.Add('Cache-Control', 'no-store')
+    $res.ContentLength64 = $bytes.Length
+    $res.OutputStream.Write($bytes, 0, $bytes.Length)
+  } catch {
+    try { $res.StatusCode = 500 } catch { }
+  } finally {
+    try { $res.OutputStream.Close() } catch { }
+  }
+}
+#</PS>
+
+<!--HTML_BEGIN-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Procurement Data Dashboard-JinShan</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#fff; --bd:#e3e8ef; --tx:#1a2233; --dim:#6b7688;
+    --blue:#2563eb; --blue-bg:#eef4ff; --red:#d92b2b; --green:#0f9d58;
+    --amber:#f59e0b; --r:10px;
+    --sh:0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:22px 24px 60px;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1440px;margin:0 auto}
+
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;flex-wrap:wrap;margin-bottom:18px}
+  h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-.01em}
+  .sub{margin-top:4px;font-size:12.5px;color:var(--dim)}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select,button{
+    font:inherit;font-size:13px;padding:7px 12px;border-radius:7px;
+    border:1px solid var(--bd);background:var(--card);color:var(--tx);cursor:pointer;
+    transition:.15s;outline:none;
+  }
+  select:hover,button:hover{border-color:#c6d0dd;background:#fbfcfd}
+  select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+  button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  button.primary:hover{background:#1d4ed8;border-color:#1d4ed8}
+  label.fld{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dim)}
+
+  .mf{position:relative;display:inline-block}
+  .mf-btn{
+    font:inherit;font-size:12.5px;color:#374151;background:#fff;
+    border:1px solid var(--bd);border-radius:7px;padding:6px 12px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;max-width:240px;
+  }
+  .mf-btn:hover{border-color:#93b4f5}
+  .mf-btn.on{border-color:#2563eb;color:#2563eb;font-weight:600;background:#eef4ff}
+  .mf-btn .mf-arrow{font-size:9px;color:#9aa4b2}
+  .mf-pop{
+    display:none;position:absolute;top:calc(100% + 5px);left:0;z-index:60;
+    background:#fff;border:1px solid var(--bd);border-radius:9px;
+    box-shadow:0 8px 26px rgba(15,23,42,.13);padding:6px;min-width:130px;
+  }
+  .mf.open .mf-pop{display:block}
+  .mf-it{
+    display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;
+    font-size:12.5px;color:#374151;cursor:pointer;user-select:none;white-space:nowrap;
+  }
+  .mf-it:hover{background:#f2f6ff}
+  .mf-it input{accent-color:#2563eb;margin:0;cursor:pointer}
+  .mf-it.sel{color:#2563eb;font-weight:600}
+  .mf-act{border-top:1px solid var(--bd);margin-top:5px;padding:6px 10px 2px;display:flex;gap:10px}
+  .mf-act a{font-size:11.5px;color:#2563eb;text-decoration:none;cursor:pointer}
+
+  .files{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px}
+
+  .tabs{
+    display:flex;gap:4px;margin-bottom:18px;
+    border-bottom:2px solid var(--bd);
+  }
+  .tab{
+    border:none;background:none;cursor:pointer;
+    font:inherit;font-size:14px;font-weight:500;color:var(--dim);
+    padding:9px 18px;position:relative;transition:.15s;
+    border-radius:8px 8px 0 0;
+  }
+  .tab:hover{color:var(--tx);background:#eef2f7}
+  .tab.active{color:var(--blue);font-weight:600}
+  .tab.active::after{
+    content:"";position:absolute;left:0;right:0;bottom:-2px;height:2px;
+    background:var(--blue);
+  }
+  .chip{
+    display:inline-flex;align-items:center;gap:7px;padding:5px 12px;
+    border-radius:20px;font-size:12.5px;background:var(--card);border:1px solid var(--bd);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:#cbd5e1;flex:none}
+  .dot.ok{background:#16a34a}.dot.err{background:#dc2626}.dot.load{background:var(--amber)}
+
+  .kpi-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));margin-bottom:18px}
+  .kpi{
+    background:var(--card);border:1px solid var(--bd);border-radius:var(--r);
+    padding:14px 16px;box-shadow:var(--sh);position:relative;
+  }
+  .kpi.has-ring{padding-right:76px}
+  .kring{position:absolute;right:14px;top:50%;transform:translateY(-50%)}
+  .kpi-l{font-size:12px;color:var(--dim);margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kpi-v{font-size:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.2}
+  .kpi-v small{font-size:12px;font-weight:500;color:var(--dim);margin-left:3px;letter-spacing:0}
+  .kpi-x{font-size:11.5px;color:var(--dim);margin-top:5px}
+  .kpi.hl{border-left:3px solid var(--blue)}
+  .kpi.warn{border-left:3px solid var(--amber)}
+  .kpi-grid-4col{grid-template-columns:repeat(4,1fr)}
+  .kpi-grid-3col{grid-template-columns:repeat(3,1fr)}
+  .kpi-grid-5col{grid-template-columns:repeat(5,1fr)}
+  @media (max-width:1400px){ .kpi-grid-5col{grid-template-columns:repeat(3,1fr)} }
+  @media (max-width:700px){ .kpi-grid-5col{grid-template-columns:repeat(2,1fr)} }
+  .age-card{
+    background:var(--card);border:1px solid var(--bd);border-radius:var(--r);
+    padding:12px 16px;box-shadow:var(--sh);
+  }
+  .age-tag{
+    display:inline-block;padding:2px 8px;border-radius:4px;
+    font-size:11.5px;font-weight:500;white-space:nowrap;
+  }
+
+  .sec{
+    background:var(--card);border:1px solid var(--bd);border-radius:var(--r);
+    box-shadow:var(--sh);margin-bottom:18px;overflow:hidden;
+  }
+  .sec-h{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:14px 18px;border-bottom:1px solid var(--bd);background:#fcfdfe;
+  }
+  .sec-t{font-size:15px;font-weight:600;display:flex;align-items:center;gap:9px}
+  .pill{font-size:11px;font-weight:500;padding:2px 9px;border-radius:5px;background:var(--blue-bg);color:var(--blue)}
+  .sec-m{font-size:12.5px;color:var(--dim)}
+  .ovsort-g{display:flex}
+  .ovsort{
+    font-size:12px;padding:4px 12px;border:1px solid var(--bd);background:var(--card);
+    color:var(--dim);cursor:pointer;white-space:nowrap;
+  }
+  .ovsort:first-child{border-radius:6px 0 0 6px}
+  .ovsort:last-child{border-radius:0 6px 6px 0}
+  .ovsort+.ovsort{margin-left:-1px}
+  .ovsort:hover{color:var(--blue)}
+  .ovsort.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500}
+  .sec-b{padding:16px 18px}
+
+  .tbl-wrap{overflow:auto;border-radius:8px;border:1px solid var(--bd);max-height:460px}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:760px}
+  thead th{
+    position:sticky;top:0;z-index:2;background:#f7f9fc;font-weight:600;color:#374151;
+    padding:9px 12px;border-bottom:1px solid var(--bd);white-space:nowrap;font-size:12.5px;
+  }
+  thead tr.grp th{text-align:center;border-bottom:1px solid var(--bd);background:#eef2f7}
+  thead th.num,tbody td.num,tfoot td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody td{padding:8px 12px;border-bottom:1px solid #f1f4f8;white-space:nowrap}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#fafcff}
+  tfoot td{padding:9px 12px;font-weight:600;background:#f7f9fc;border-top:1px solid var(--bd);font-variant-numeric:tabular-nums}
+  td.mute{color:#b6bfcc}
+  .rate{display:inline-block;min-width:46px}
+
+  .chart-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}
+  .chart-grid-4{display:grid;gap:12px;grid-template-columns:repeat(4,1fr)}
+  .chart-grid-2{display:grid;gap:14px;grid-template-columns:repeat(2,1fr)}
+  .cbox-tall{height:300px}
+  .cbox{border:1px solid var(--bd);border-radius:8px;padding:12px 12px 8px}
+  .cbox-t{font-size:12.5px;color:var(--dim);font-weight:500;margin-bottom:8px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cbox-c{position:relative;height:210px}
+
+  .bud-top{
+    display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end;
+    padding-bottom:13px;margin-bottom:13px;border-bottom:1px dashed var(--bd);
+  }
+  .bud-m{display:flex;flex-direction:column;gap:2px;min-width:96px}
+  .bud-m-l{font-size:11.5px;color:var(--dim);white-space:nowrap}
+  .bud-m-v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.25}
+  .bud-m-v.over{color:#dc2626}
+  .bud-m-v.good{color:var(--green)}
+  .bud-verdict{
+    flex:1 1 260px;font-size:12.5px;line-height:1.7;color:#92400e;
+    background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:8px 13px;
+  }
+  .bud-verdict.ok{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
+  .bud-verdict.bad{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+  .bud-q{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+
+  .bline{margin-bottom:20px}
+  .bline-h{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;flex-wrap:wrap}
+  .bline-y{font-weight:700;font-size:14.5px;color:#1a2233}
+  .bline-nums{font-size:12.5px;color:#5b6472}
+  .bline-nums b{color:#1a2233}
+  .bline-nums b.over-t{color:#dc2626}
+  .bline-track{position:relative;display:flex;height:8px;background:#e8edf3;border-radius:4px}
+  .bseg{position:relative;flex:1;overflow:hidden}
+  .bseg:first-child{border-radius:4px 0 0 4px}
+  .bseg:last-child{border-radius:0 4px 4px 0}
+  .bline-cons{position:relative;height:12px;margin-bottom:3px}
+  .cneedle{position:absolute;top:0;bottom:0;width:3px;border-radius:2px;background:#111827;transform:translateX(-50%);z-index:2;box-shadow:0 0 0 1.5px #fff}
+  .cneedle.over{background:#ef4444}
+  .bline-time{position:relative;height:12px;margin-top:3px}
+  .tneedle{position:absolute;top:0;bottom:0;width:3px;border-radius:2px;background:#2563eb;transform:translateX(-50%);z-index:2;box-shadow:0 0 0 1.5px #fff}
+  .bseg:hover{background:rgba(37,99,235,.06)}
+  #budTip{position:fixed;display:none;z-index:1000;pointer-events:none;background:#111827;color:#fff;font-size:12px;line-height:1.6;padding:7px 12px;border-radius:8px;box-shadow:0 5px 16px rgba(15,23,42,.28);white-space:nowrap}
+  #budTip .red{color:#fca5a5;font-weight:600}
+  .bdot{position:absolute;top:50%;width:5px;height:5px;border-radius:50%;background:#fff;border:1.5px solid #94a3b8;transform:translate(-50%,-50%);z-index:2}
+  .bline-ml{display:flex;margin-top:5px}
+  .bline-ml span{flex:1;text-align:center;font-size:11px;color:#8a94a6}
+  .kpi-v.over-t{color:#dc2626}
+  .bline-ml span.over-t{color:#dc2626}
+  .bq{border:1px solid var(--bd);border-radius:9px;padding:12px 14px 13px;background:#fcfdfe}
+  .bq.now{border-color:#bfd3f8;background:#f8fbff;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+  .bq-h{display:flex;align-items:baseline;gap:7px;margin-bottom:9px}
+  .bq-t{font-size:14px;font-weight:600}
+  .bq-m{font-size:11px;color:var(--dim)}
+  .bq-clock{margin-left:auto;font-size:10.5px;color:#64748b;background:#eef2f7;
+            padding:1px 7px;border-radius:20px;white-space:nowrap}
+  .bq-clock.live{background:var(--blue-bg);color:var(--blue)}
+  .bq-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:11.5px;margin-bottom:4px}
+  .bq-row .k{color:var(--dim);white-space:nowrap}
+  .bq-row .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .bq-set{color:var(--dim);font-size:11.5px;font-style:normal;cursor:pointer;
+          border-bottom:1px dashed #cbd5e1}
+  .bq-bar{position:relative;height:8px;border-radius:4px;background:#eef2f7;margin:11px 0 9px}
+  .bq-fill{height:100%;border-radius:4px;background:var(--blue);transition:width .45s ease}
+  .bq-fill.warn{background:var(--amber)}
+  .bq-fill.over{background:#dc2626}
+  .bq-now{position:absolute;top:-4px;width:2px;height:16px;background:#334155;border-radius:1px}
+  .bq-now::before{content:"";position:absolute;top:-3px;left:-2px;width:6px;height:6px;border-radius:50%;background:#334155}
+  .bq-foot{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px}
+  .bq-rate{font-weight:600;font-variant-numeric:tabular-nums}
+  .bq-rate.warn{color:#b45309}.bq-rate.over{color:#dc2626}
+  .bq-left{color:var(--dim);font-variant-numeric:tabular-nums}
+
+  .mask{position:fixed;inset:0;background:rgba(15,23,42,.42);display:flex;
+        align-items:center;justify-content:center;z-index:999;padding:20px}
+  .modal{background:#fff;border-radius:12px;width:min(580px,100%);max-height:88vh;overflow:auto;
+         box-shadow:0 24px 64px rgba(16,24,40,.24)}
+  .modal-h{padding:16px 20px;border-bottom:1px solid var(--bd);font-size:15px;font-weight:600;
+           display:flex;justify-content:space-between;align-items:center}
+  .modal-x{border:none;background:none;font-size:20px;line-height:1;color:#9aa5b5;cursor:pointer;padding:0 4px}
+  .modal-x:hover{color:var(--tx);background:none}
+  .modal-b{padding:18px 20px}
+  .modal-f{padding:13px 20px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end;
+           gap:9px;background:#fcfdfe;border-radius:0 0 12px 12px}
+  .mrow{display:grid;grid-template-columns:84px 1fr;gap:10px;align-items:center;margin-bottom:9px}
+  .mrow>label{font-size:12.5px;color:var(--dim);text-align:right}
+  .mrow .unit{font-size:12px;color:var(--dim);margin-left:7px}
+  input[type=number],input[type=text]{
+    font:inherit;font-size:13px;padding:7px 11px;border:1px solid var(--bd);border-radius:7px;
+    background:#fff;color:var(--tx);outline:none;width:100%;font-variant-numeric:tabular-nums;
+  }
+  input[type=number]:focus,input[type=text]:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+  .mask-hint{font-size:12px;color:var(--dim);line-height:1.75;background:#f7f9fc;
+             border-radius:7px;padding:9px 13px;margin-top:12px}
+  .mask-hint b{color:#334155}
+  .diff{font-size:12px;margin-top:6px}
+  .diff.ok{color:var(--green)}.diff.bad{color:#dc2626}
+
+  /* 导出 PPT：板块选择 */
+  .pk-bar{display:flex;gap:7px;align-items:center;margin-bottom:13px;flex-wrap:wrap}
+  .pk-bar>span{font-size:12px;color:var(--dim);margin-right:auto;line-height:1.6}
+  .pk-bar button{font-size:12px;padding:4px 10px;border-radius:6px}
+  .pk-view{border:1px solid var(--bd);border-radius:9px;margin-bottom:9px;overflow:hidden}
+  .pk-vh{display:flex;align-items:center;gap:9px;padding:8px 12px;background:#f7f9fc;cursor:pointer}
+  .pk-vh .nm{font-size:13px;font-weight:600}
+  .pk-vh .ct{font-size:11.5px;color:var(--dim);margin-left:auto;font-variant-numeric:tabular-nums}
+  .pk-list{padding:4px 12px 8px}
+  .pk-item{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;
+           color:#334155;cursor:pointer;margin:0}
+  .pk-item .idx{width:20px;height:18px;line-height:18px;text-align:center;border-radius:5px;
+                background:#eef2f7;color:#64748b;font-size:10.5px;flex:none}
+  .pk-item .tk{color:#9aa5b5;font-size:11.5px}
+  .pk-item.miss{color:#9aa5b5;cursor:default}
+  input[type=checkbox]{width:14px;height:14px;accent-color:var(--blue);cursor:pointer;flex:none;margin:0}
+  .pk-foot-note{font-size:12px;color:var(--dim);margin-right:auto;align-self:center}
+
+  .sup-wrap{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  /* 供应商表默认只显示前 8 家；隐藏的行不参与截图导出 */
+  tr.sup-more{display:none}
+  table.sup-tbl.open tr.sup-more{display:table-row}
+  table.sup-tbl.open tr.sup-rest{display:none}
+  .pie-box{flex:0 0 320px;height:280px;position:relative}
+  .rank{display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;
+        border-radius:4px;background:var(--blue-bg);color:var(--blue);
+        font-size:11px;font-weight:600;margin-right:7px}
+  .rank-o{background:#f1f4f8;color:#8b95a5}
+  .bar-bg{height:6px;border-radius:3px;background:#eef2f7;overflow:hidden}
+  .bar-fg{height:100%;border-radius:3px;background:var(--blue)}
+  .bar-rest{background:#cbd5e1}
+  .bar-fg.bar-over{background:var(--red)}
+  .bar-fg.bar-warn{background:var(--amber)}
+
+  /* 预算进度：条形 + 百分比文字 */
+  .rate-cell{display:flex;align-items:center;gap:7px;justify-content:flex-end;min-width:120px}
+  .rate-cell .bar-bg{flex:1 1 auto;min-width:42px}
+  .rate-cell .rt{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums;min-width:46px;text-align:right}
+  .rate-cell .rt.over{color:var(--red);font-weight:600}
+  .sec-btn{font-size:12px;padding:4px 10px;border-radius:6px;white-space:nowrap}
+  .sec-note{font-size:11.5px;color:var(--dim);font-weight:400}
+
+  /* 页脚 + 归属标识 */
+  .foot{
+    display:flex;justify-content:center;align-items:center;gap:12px;flex-wrap:wrap;
+    margin-top:20px;padding:14px 2px 0;border-top:1px solid var(--bd);
+    font-size:12px;color:#9aa4b2;
+  }
+  .foot-l{font-size:12px;color:#9aa4b2}
+  .flag{
+    display:inline-flex;align-items:center;gap:10px;
+    padding:5px 14px 5px 5px;border-radius:999px;
+    background:linear-gradient(#fff,#fff) padding-box,
+               linear-gradient(135deg,#93c5fd,#c4b5fd) border-box;
+    border:1px solid transparent;
+    box-shadow:0 1px 2px rgba(16,24,40,.04),0 4px 14px rgba(37,99,235,.08);
+    white-space:nowrap;transition:transform .2s,box-shadow .2s;cursor:default;
+  }
+  .flag:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(37,99,235,.16)}
+  .flag-logo{
+    width:26px;height:26px;border-radius:50%;flex:none;
+    display:inline-flex;align-items:center;justify-content:center;
+    background:#000;
+    color:#fff;font-size:11px;font-weight:800;letter-spacing:.02em;
+  }
+  .flag-txt{display:flex;flex-direction:column;align-items:center;line-height:1.15}
+  .flag-k{font-size:9.5px;color:#9aa4b2;letter-spacing:.14em;text-transform:uppercase}
+  .flag-v{font-size:12.5px;font-weight:700;
+    background:linear-gradient(90deg,#1d4ed8,#7c3aed);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .flag-v span{font-weight:500;color:#6b7688;-webkit-text-fill-color:#6b7688}
+  .flag-v .flag-3m{font-weight:800;color:#FF0000;-webkit-text-fill-color:#FF0000;letter-spacing:.02em}
+
+  body.readonly #btnBudget{display:none !important}
+  body.readonly .sec-btn[data-budget-sub]{display:none !important}
+  body.readonly .bq-set{pointer-events:none;border-bottom:none;cursor:default}
+
+  .bqg{display:flex;flex-direction:column;gap:8px;min-width:0}
+  .bqg-h{font-size:12px;font-weight:600;color:#475569;padding:0 2px}
+  .bqm{border:1px solid var(--bd);border-radius:9px;padding:10px 12px 11px;background:#fcfdfe}
+  .bqm.now{border-color:#bfd3f8;background:#f8fbff;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+  .bmg{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 12px}
+  .bmg-c label{display:block;font-size:11.5px;color:var(--dim);margin-bottom:4px}
+  tr.cc-row td{background:#fbfcfe;font-size:12.5px;color:#5b6472}
+  tr.cc-row.cc-hid{display:none}
+  tr.dept-row{cursor:pointer}
+  tr.dept-row:hover td{background:#f5f8ff}
+  .caret{display:inline-block;font-size:9px;color:#2563eb;margin-right:7px;transition:transform .15s}
+  .caret.closed{transform:rotate(-90deg)}
+  .fold-all{color:#2563eb;text-decoration:none;font-weight:600}
+  .fold-all:hover{text-decoration:underline}
+  tr.cc-row td:first-child{color:#6b7688}
+
+  .empty{text-align:center;padding:44px 20px;color:var(--dim);font-size:13px;line-height:2}
+  .empty code{background:#eef2f7;padding:2px 7px;border-radius:4px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;color:#334155}
+  .err{background:#fff5f5;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:12px 15px;font-size:12.5px;line-height:1.8}
+  .err b{display:block;margin-bottom:3px}
+  .hint{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:10px 14px;font-size:12.5px;margin-bottom:16px;line-height:1.7}
+
+  @media (max-width:1400px){
+    .chart-grid-4{grid-template-columns:repeat(2,1fr)}
+    .kpi-grid-4col{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:900px){
+    .chart-grid-4{grid-template-columns:1fr}
+    .kpi-grid-3col{grid-template-columns:1fr}
+    .pie-box{flex:1 1 100%;height:210px}
+  }
+  @media (max-width:700px){
+    body{padding:14px}
+    .kpi-grid{grid-template-columns:repeat(2,1fr)}
+    .chart-grid{grid-template-columns:1fr}
+  }
+
+  /* 月度 Sub 图表：3 图布局 */
+  .sc-grid{display:grid;gap:14px;grid-template-columns:2fr 1fr}
+  .sc-single{max-width:560px}
+  .sc-wrap{display:flex;flex-direction:column;gap:18px;padding:8px 2px 4px}
+  .sc-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+  .sc-tot{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
+  .sc-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:#eef2f7}
+  .sc-bar>div{height:100%;transition:width .4s}
+  .sc-leg{display:flex;flex-direction:column;gap:3px;margin-top:7px;font-size:11.5px;color:#5b6472;font-variant-numeric:tabular-nums}
+  .sc-leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:0}
+  @media (max-width:1100px){ .sc-grid{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1 id="ttl">Procurement Data Dashboard-JinShan</h1>
+      <div class="sub" id="sub">正在读取数据…</div>
+    </div>
+    <div class="toolbar">
+      <button id="btnPick" class="primary">选择 Excel 文件</button>
+      <div class="mf" id="mfSub">
+        <button class="mf-btn" type="button">Sub：全部</button>
+        <div class="mf-pop"></div>
+      </div>
+      <div class="mf" id="mfYear">
+        <button class="mf-btn" type="button">年份：全部</button>
+        <div class="mf-pop"></div>
+      </div>
+      <div class="mf" id="mfMonth">
+        <button class="mf-btn" type="button">月份：全部</button>
+        <div class="mf-pop"></div>
+      </div>
+      <button id="btnExportPpt">导出 PPT</button>
+      <button id="btnClear">清空</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-view="overview">经营概览</button>
+    <button class="tab" data-view="sub">月度 Sub</button>
+    <button class="tab" data-view="dept">部门</button>
+    <button class="tab" data-view="overdue">超期未交票</button>
+  </div>
+
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv" multiple hidden />
+
+  <div class="files" id="files"></div>
+  <div id="notice"></div>
+  <div id="content"></div>
+
+  <footer class="foot">
+    <div class="flag" title="Designed by CI Team · JinShan · 3M"><span class="flag-logo">CI</span><span class="flag-txt"><span class="flag-k">Designed by</span><span class="flag-v">CI Team <span>· JinShan · <b class="flag-3m">3M</b></span></span></span></div>
+  </footer>
+
+</div>
+
+<script>
+
+const CONFIG = {
+
+  // ① 文件名清单（仅作「兜底」用）。
+  //    双击 start-dashboard.bat 打开时，页面会先向本地服务要目录清单，
+  //    文件夹里有几个 Excel 就读几个 —— 加减文件不用改这里。
+  //    只有部署到 SharePoint 等纯静态位置（没有 /__list 接口）时，才按下面这份清单读。
+  //    清单里写几个就读几个，末尾不要留多余逗号。
+  files: [
+    "0-2026 JS PR List-Xiao Xia.xlsx",
+    "2026 JS PR List-MRD-Lin Zhu.xlsx",
+    "2026 JS PR List-MRD-Qian He.xlsx"
+  ],
+
+  requireMatchedNames: false,
+
+  // 打开页面时自动按上面的文件名从同目录读取，取不到再退回手动选择。
+  // 本地双击 file:// 打开时浏览器禁止读取同目录文件，此开关自动失效（会给出提示）。
+  autoLoad: true,
+
+  // ② Excel 所在目录（相对 index.html）。换文件夹只改这一行。
+  // 同目录留空 ""；子目录写 "data"；上一级写 "../报表"；
+  // SharePoint 整站点路径写 "/sites/Finance/Shared Documents/报表"
+  baseDir: "",
+
+  sheet: null,
+
+  headerRow: 2,
+
+  col: {
+    date:      "C",
+    sub:       "M",
+    amount:    "U",
+    invoiceDate: "Z",
+    submitDate: "AB",
+    supplier:  "J",
+    dept:      "G",
+    po:        "E",
+    itemName:  "O",
+    category:  "L",
+    costCenter: "I"
+  },
+
+  targets: ["703", "764"],
+
+  // 供应商表格默认展示前 SHOW 家，点「展开全部」看其余；饼图扇区太多会糊，只画前 M 家 + 「其余 X 家」
+  supplierShowN: 8,
+  supplierTopN: 20,       // 标题里「前 20 家占 xx%」的口径
+  supplierPieN: 8,
+  supplierCrN: 5,
+
+  // 月度 Sub 里用哪一路预算算「预算进度」（取值 703 / 764）
+  budgetSub: "703",
+
+  strictDate: true,
+
+  emptyTokens: ["", "-", "--", "—", "/", "无", "na", "n/a", "null", "none", "未收", "未收到"],
+
+  yesTokens: ["是", "已收", "已收到", "收到", "y", "yes"]
+};
+
+const BUDGET = {
+
+};
+
+// 页脚 / 导出的 PPT 上的归属标识。
+// 注意：页面底部那次写在 <footer class="flag"> 里，改名时两处一起改。
+const BRAND = "Designed by CI Team · JinShan · 3M";
+// PPT 用：分段文字，3M 单独标红
+function brandRuns(color){
+  return [
+    { text: "Designed by CI Team · JinShan · ", options: { color: color } },
+    { text: "3M", options: { color: "FF0000", bold: true } }
+  ];
+}
+
+const BUDGET_KEY = "cnc_quarter_budget_v1";
+
+const READONLY = false;
+
+const charts = [];
+let RAW = [];
+let FILE_STATE = [];
+
+const $ = id => document.getElementById(id);
+
+function colIdx(letter){
+  let n = 0;
+  for (const ch of letter.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+const I = {
+  date: colIdx(CONFIG.col.date),
+  sub: colIdx(CONFIG.col.sub),
+  amount: colIdx(CONFIG.col.amount),
+  inv: colIdx(CONFIG.col.invoiceDate),
+  submit: colIdx(CONFIG.col.submitDate || "AB"),
+  supplier: colIdx(CONFIG.col.supplier || "J"),
+  dept: colIdx(CONFIG.col.dept || "G"),
+  po: colIdx(CONFIG.col.po || "E"),
+  itemName: colIdx(CONFIG.col.itemName || "O"),
+  category: colIdx(CONFIG.col.category || "L"),
+  costCenter: colIdx(CONFIG.col.costCenter || "I")
+};
+
+function serialToYMD(n){
+  if (!isFinite(n)) return null;
+
+  const utcMs = Math.round((n - 25569) * 86400000);
+  const d = new Date(utcMs);
+  if (isNaN(d.getTime())) return null;
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+}
+
+function parseYM(v){
+  if (v === null || v === undefined || v === "") return null;
+
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null;
+
+    return { y: v.getUTCFullYear(), m: v.getUTCMonth() + 1, d: v.getUTCDate() };
+  }
+
+  if (typeof v === "number" && isFinite(v)) {
+
+    if (v > 20000 && v < 80000) {
+      const r = serialToYMD(v);
+      if (r) return r;
+    }
+    const s = String(Math.trunc(v));
+
+    if (s.length === 8) {
+      const y = +s.slice(0,4), m = +s.slice(4,6), d = +s.slice(6,8);
+      if (y > 1900 && m >= 1 && m <= 12) return { y, m, d };
+    }
+
+    if (s.length === 6) {
+      const y = +s.slice(0,4), m = +s.slice(4,6);
+      if (y > 1900 && m >= 1 && m <= 12) return { y, m, d: 1 };
+    }
+    return null;
+  }
+
+  const s = String(v).trim();
+  if (!s) return null;
+
+  let mm = s.match(/^(\d{4})\s*[-/.年]\s*(\d{1,2})(?:\s*[-/.月]\s*(\d{1,2}))?/);
+  if (mm) {
+    const y = +mm[1], m = +mm[2], d = mm[3] ? +mm[3] : 1;
+    if (y > 1900 && m >= 1 && m <= 12) return { y, m, d };
+  }
+
+  mm = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (mm) {
+    const y = +mm[1], m = +mm[2], d = +mm[3];
+    if (m >= 1 && m <= 12) return { y, m, d };
+  }
+  mm = s.match(/^(\d{4})(\d{2})$/);
+  if (mm) {
+    const y = +mm[1], m = +mm[2];
+    if (m >= 1 && m <= 12) return { y, m, d: 1 };
+  }
+
+  return null;
+}
+
+function hasInvoice(v){
+  if (v === null || v === undefined) return false;
+
+  if (typeof v === "boolean") return v;
+
+  if (v instanceof Date) return !isNaN(v.getTime());
+
+  if (typeof v === "number" && isFinite(v)){
+
+    if (v > 20000 && v < 80000) return true;
+    const s = String(Math.trunc(v));
+
+    if (s.length === 8) {
+      const m = +s.slice(4,6);
+      if (m >= 1 && m <= 12) return true;
+    }
+    return false;
+  }
+
+  const s = String(v).trim();
+  if (!s) return false;
+
+  const low = s.toLowerCase().replace(/\s+/g, "");
+  if (CONFIG.emptyTokens.some(t => t && low === t)) return false;
+
+  if (CONFIG.yesTokens.some(t => low === t)) return true;
+
+  if (!CONFIG.strictDate) return true;
+
+  return parseYM(v) !== null;
+}
+
+function parseNum(v){
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  const s = String(v).replace(/[¥￥$,\s]/g, "").replace(/[（(]/g, "-").replace(/[)）]/g, "");
+  const n = parseFloat(s);
+  return isFinite(n) ? n : 0;
+}
+
+function normSub(v){
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number") return String(Math.trunc(v));
+  return String(v).trim().replace(/\.0+$/, "");
+}
+
+function fmtMoney(v){
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  const a = Math.abs(v);
+  if (a >= 1e8) return "¥" + (v/1e8).toFixed(2) + " 亿";
+  if (a >= 1e4) return "¥" + (v/1e4).toFixed(2) + " 万";
+  return "¥" + Math.round(v).toLocaleString("zh-CN");
+}
+function fmtMoneyFull(v){
+  if (isNaN(v)) return "—";
+  return "¥" + v.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+}
+function fmtInt(v){
+  return Number(v).toLocaleString("zh-CN");
+}
+function fmtPct(v){
+  if (!isFinite(v)) return "—";
+  return (v * 100).toFixed(1) + "%";
+}
+
+function readFileBuffer(file){
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(new Error("读取本地文件失败"));
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+/* ===== 上次选过的文件缓存（localStorage）：下次打开不用再选一次 =====
+ * 说明：浏览器不允许页面读本地路径（C:\...），file:// 下 IndexedDB 也被禁用，
+ * 所以只能把「上次选中的文件内容」以 base64 存进 localStorage。
+ * 容量约 5MB（base64 会膨胀 33%），文件过大时自动放弃缓存并提示改用 http 方式打开。
+ */
+const CACHE_KEY = "cpr_dash_files_v1";
+const CACHE_MAX_CHARS = 2_400_000;   // 约 4.8MB 配额，留一点余量
+
+function bufToB64(buf){
+  const bytes = new Uint8Array(buf);
+  let s = "";
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH){
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  }
+  return btoa(s);
+}
+
+function b64ToBuf(b64){
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// 返回 "ok" | "big"（文件太大放不下）| "fail"（浏览器禁用存储）
+function saveFileCache(items){
+  try {
+    if (!items.length) return "fail";
+    let total = 0;
+    const files = items.map(it => {
+      const b64 = bufToB64(it.buf);
+      total += b64.length;
+      return { name: it.name, lastModified: it.lastModified, size: it.size, b64: b64 };
+    });
+    if (total > CACHE_MAX_CHARS){
+      try { localStorage.removeItem(CACHE_KEY); } catch(e){}   // 别留旧数据误导下次
+      return "big";
+    }
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), files: files, bytes: total }));
+    return "ok";
+  } catch(e){ return "fail"; }
+}
+
+function readFileCache(){
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || !Array.isArray(o.files) || !o.files.length) return null;
+    o.files = o.files.map(f => ({
+      name: f.name, lastModified: f.lastModified, size: f.size, buf: b64ToBuf(f.b64)
+    }));
+    return o;
+  } catch(e){ return null; }
+}
+
+function cacheClear(){
+  try { localStorage.removeItem(CACHE_KEY); } catch(e){}
+}
+
+// 启动时用上次缓存的数据直接渲染（双击本地文件打开时靠这个免于重选）
+function loadCachedFiles(){
+  const c = readFileCache();
+  if (!c) return false;
+
+  FILE_STATE = c.files.map(f => ({ name: f.name, state: "load" }));
+  renderFileChips(FILE_STATE);
+  $("sub").textContent = "正在载入上次选择的文件…";
+  $("content").innerHTML = '<div class="sec"><div class="empty">正在载入上次选择的 ' + c.files.length + ' 个文件…</div></div>';
+
+  const results = [];
+  const errors = [];
+  for (let i = 0; i < c.files.length; i++){
+    const f = c.files[i];
+    try {
+      const r = parseWorkbook(f.buf, f.name);
+      results.push(r);
+      FILE_STATE[i] = { name: f.name, state: "ok", matched: r.matched, rows: r.rows.length };
+    } catch(e){
+      FILE_STATE[i] = { name: f.name, state: "err", msg: e.message };
+      errors.push({ file: f.name, msg: e.message });
+    }
+    renderFileChips(FILE_STATE);
+  }
+
+  if (!results.length) return false;
+
+  const when = new Date(c.at).toLocaleString("zh-CN");
+  finishLoad(results, errors, []);
+  return true;
+}
+
+function parseWorkbook(buf, url){
+
+  const wb = XLSX.read(buf, { type: "array", cellDates: false, cellNF: false, cellText: false });
+  const sheetName = CONFIG.sheet && wb.SheetNames.includes(CONFIG.sheet)
+    ? CONFIG.sheet : wb.SheetNames[0];
+  if (!sheetName) throw new Error("工作簿中没有工作表");
+
+  const ws = wb.Sheets[sheetName];
+  if (!ws) throw new Error("工作表 " + sheetName + " 为空");
+  if (!ws["!ref"]) throw new Error("工作表无数据范围");
+
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const startRow = range.s.r + (CONFIG.headerRow || 1);
+
+  const out = { rows: [], total: 0, matched: 0, noDate: 0, file: url, sheet: sheetName };
+
+  function cellVal(r, c){
+    if (c < 0) return null;
+    const addr = XLSX.utils.encode_cell({ r, c });
+    const cell = ws[addr];
+    if (!cell) return null;
+
+    if (cell.t === "n") return cell.v;
+    if (cell.t === "d") return cell.v;
+    if (cell.t === "b") return cell.v;
+    return cell.v !== undefined && cell.v !== null ? cell.v : null;
+  }
+
+  for (let r = startRow; r <= range.e.r; r++){
+    out.total++;
+
+    const subVal = normSub(cellVal(r, I.sub));
+    if (!CONFIG.targets.includes(subVal)) continue;
+    out.matched++;
+
+    const ym = parseYM(cellVal(r, I.date));
+    if (!ym){
+      out.noDate++;
+      continue;
+    }
+
+    out.rows.push({
+      sub: subVal,
+      y: ym.y,
+      m: ym.m,
+      amount: parseNum(cellVal(r, I.amount)),
+      invoiced: hasInvoice(cellVal(r, I.inv)),
+      invYmd: parseYM(cellVal(r, I.inv)),   // 收票日期（用于超期未交票计天）
+      submitted: hasInvoice(cellVal(r, I.submit)),
+      supplier: (function(){
+        const s = cellVal(r, I.supplier);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      dept: (function(){
+        const s = cellVal(r, I.dept);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      po: (function(){
+        const s = cellVal(r, I.po);
+        if (s === null || s === undefined) return "";
+        return typeof s === "number" ? String(Math.trunc(s)) : String(s).trim();
+      })(),
+      itemName: (function(){
+        const s = cellVal(r, I.itemName);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      category: (function(){
+        const s = cellVal(r, I.category);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      costCenter: (function(){
+        const s = cellVal(r, I.costCenter);
+        return s === null || s === undefined ? "" : String(s).trim();
+      })(),
+      ymd: { y: ym.y, m: ym.m, d: ym.d },
+      src: url
+    });
+  }
+
+  return out;
+}
+
+function showWelcome(){
+  renderFileChips([]);
+
+  $("sub").textContent = "请先选择 Excel 文件";
+  $("content").innerHTML =
+    '<div class="sec"><div class="empty" style="padding:56px 20px">' +
+      '<div style="font-size:15px;font-weight:600;color:#374151">' +
+        '点击右上角「选择 Excel 文件」开始' +
+      '</div>' +
+    '</div></div>';
+}
+
+async function handleFiles(fileList){
+  const files = Array.from(fileList || []).filter(f =>
+    /\.(xlsx|xls|xlsm|csv)$/i.test(f.name)
+  );
+
+  if (!files.length){
+    $("notice").innerHTML =
+      '<div class="err"><b>没有选中可用的 Excel 文件</b>' +
+      '请选择后缀为 .xlsx / .xls / .xlsm 的文件。</div>';
+    return;
+  }
+
+  FILE_STATE = files.map(f => ({ name: f.name, state: "load" }));
+  renderFileChips(FILE_STATE);
+  $("notice").innerHTML = "";
+  $("content").innerHTML = '<div class="sec"><div class="empty">正在读取 ' + files.length + ' 个文件…</div></div>';
+
+  const results = [];
+  const errors = [];
+  const snapshot = [];   // 顺便留一份字节，用来给下次打开做缓存
+
+  for (let i = 0; i < files.length; i++){
+    const f = files[i];
+    try {
+      const buf = await readFileBuffer(f);
+      const r = parseWorkbook(buf, f.name);
+      results.push(r);
+      snapshot.push({ name: f.name, lastModified: f.lastModified, size: f.size, buf: buf });
+      FILE_STATE[i] = { name: f.name, state: "ok", matched: r.matched, rows: r.rows.length };
+    } catch (e){
+      FILE_STATE[i] = { name: f.name, state: "err", msg: e.message };
+      errors.push({ file: f.name, msg: e.message });
+    }
+    renderFileChips(FILE_STATE);
+  }
+
+  // 存下来，下次打开直接载入（失败不影响本次使用）
+  const extra = [];
+  if (results.length){
+    const st = saveFileCache(snapshot);
+    const mb = (snapshot.reduce((s, x) => s + x.buf.byteLength, 0) / 1048576).toFixed(1);
+    if (st === "big"){
+      extra.push('<div class="hint"><b>所选文件共 ' + mb + ' MB，浏览器放不下缓存</b>' +
+        '（本地打开时上限约 1.8 MB，共享盘 http 打开则没有这个限制），所以下次打开还得再选一次。' +
+        '想彻底免掉这一步，把页面放到 SharePoint 站点或本地起个服务，用 http 地址打开即可自动加载。</div>');
+    } else if (st === "fail"){
+      extra.push('<div class="hint">浏览器禁用了本地存储，这次的选择没法记住，下次打开需要重新选。</div>');
+    }
+  }
+
+  finishLoad(results, errors, extra);
+}
+
+// 统一的收尾：落地数据、渲染提示、刷新筛选与视图
+function finishLoad(results, errors, extraNotes){
+  RAW = results.flatMap(r => r.rows);
+
+  const notes = [];
+
+  if (errors.length){
+    notes.push(
+      '<div class="err"><b>有 ' + errors.length + ' 个文件读取失败</b>' +
+      errors.map(e => '• <code>' + esc(e.file) + '</code> → ' + esc(e.msg)).join("<br>") +
+      '<br><br>常见原因：① 文件已损坏或被占用（先在 Excel 里关掉再试）；' +
+      '② 文件其实是 .csv 改了后缀；③ 文件加密需要密码。</div>'
+    );
+  }
+
+  if (extraNotes && extraNotes.length) notes.push(extraNotes.join(""));
+
+  $("notice").innerHTML = notes.join("");
+
+  buildYearOptions();
+  const ym = document.getElementById("mfYear");
+  if (ym && ym._mfPaint) ym._mfPaint();
+  render();
+}
+
+/**
+ * 自动加载 Excel。
+ * ① 优先：向本地服务（start-dashboard.bat）要目录清单 → 文件夹里有几个就读几个，不用维护文件名清单。
+ * ② 退回：静态站点（SharePoint 等）没有这个接口，就按 CONFIG.files 里写死的文件名读。
+ * 返回 true = 已成功渲染；返回字符串 = 需要提示用户的原因；返回 false = 静默走手动选择。
+ */
+async function listServedFiles(dir){
+  const q = dir ? ("?dir=" + encodeURIComponent(dir)) : "";
+  const res = await fetch("__list" + q, { cache: "no-store" });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  const list = (data && Array.isArray(data.files)) ? data.files : [];
+  const base = dir.replace(/[\\/]+$/, "");
+  return list
+    .map(f => String((f && f.name) || ""))
+    .filter(n => n && !/^~\$/.test(n))                    // 跳过 Excel 打开时的 ~$ 锁文件
+    .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"))
+    .map(n => ({ name: n, path: base ? base + "/" + n : n }));
+}
+
+async function autoLoadFiles(){
+  if (!CONFIG.autoLoad) return false;
+
+  const dir = String(CONFIG.baseDir || "").trim();
+  const pathOf = n => {
+    if (/^(https?:)?\/\//i.test(n) || n.charAt(0) === "/") return n;   // 完整 URL / 站点绝对路径
+    if (!dir) return n;
+    return dir.replace(/[\\/]+$/, "") + "/" + n.replace(/^[\\/]+/, "");
+  };
+
+  // file:// 下 fetch 同目录文件被浏览器禁止，只能手选
+  if (location.protocol === "file:"){
+    return '<div class="hint"><b>没自动加载数据：当前是本地双击打开</b>' +
+      '浏览器禁止页面直接读取同目录的 Excel（安全限制，不是代码问题）。' +
+      '请点右上角「选择 Excel 文件」手动选一次（可以多选，选几个就分析几个）；' +
+      '想每次打开都自动出数，双击 <b>Procurement_Dashboard.bat</b>——它会自动扫描文件夹里所有 Excel 并全部读取。</div>';
+  }
+
+  // ① 问本地服务要目录清单
+  let items = [];
+  let discovered = false;
+  try {
+    const found = await listServedFiles(dir);
+    if (found.length){ items = found; discovered = true; }
+  } catch (e){ /* 静态站点没有 /__list 接口，走 ② */ }
+
+  // ② 退回写死的文件名清单
+  if (!items.length){
+    items = (CONFIG.files || []).filter(Boolean).map(n => ({ name: n, path: pathOf(n) }));
+  }
+  if (!items.length) return false;
+
+  FILE_STATE = items.map(it => ({ name: it.name, state: "load" }));
+  renderFileChips(FILE_STATE);
+  $("sub").textContent = "正在自动读取 " + items.length + " 个 Excel…";
+  $("content").innerHTML = '<div class="sec"><div class="empty">正在自动读取 ' + items.length + ' 个文件…</div></div>';
+
+  const results = [];
+  const errors = [];
+  const missing = [];
+
+  for (let i = 0; i < items.length; i++){
+    const name = items[i].name;
+    const path = items[i].path;
+    try {
+      const res = await fetch(path, { cache: "no-store", credentials: "same-origin" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const buf = await res.arrayBuffer();
+      const r = parseWorkbook(buf, name);
+      results.push(r);
+      FILE_STATE[i] = { name: name, state: "ok", matched: r.matched, rows: r.rows.length };
+    } catch (e){
+      const msg = String((e && e.message) || e);
+      FILE_STATE[i] = { name: name, state: "err", msg: msg };
+      if (/HTTP 40[034]|Failed to fetch|NetworkError|not found/i.test(msg)) missing.push(name);
+      errors.push({ file: name, msg: msg + (path !== name ? "（实际请求：" + path + "）" : "") });
+    }
+    renderFileChips(FILE_STATE);
+  }
+
+  if (!results.length){
+    FILE_STATE = [];
+    return false;
+  }
+
+  const extra = [];
+  if (!discovered && missing.length){
+    extra.push('<div class="hint">有 ' + missing.length + ' 个文件没取到：' +
+      missing.map(n => '<code>' + esc(n) + '</code>').join("、") +
+      '。当前只统计已读到的文件，需要完整数据请补齐文件名或手动选择。</div>');
+  }
+
+  finishLoad(results, errors, extra);
+  return true;
+}
+
+function renderFileChips(list){
+  if (!list || !list.length){
+    $("files").innerHTML = '<span class="chip"><span class="dot"></span>尚未选择文件</span>';
+    return;
+  }
+  $("files").innerHTML = list.map(f => {
+    const cls = f.state === "ok" ? "ok" : f.state === "err" ? "err" : "load";
+    const tail = f.state === "ok" ? '（' + f.matched + " 行命中）"
+               : f.state === "err" ? "（读取失败）" : "（读取中）";
+    return '<span class="chip"><span class="dot ' + cls + '"></span>' +
+           esc(f.name) + " " + tail + "</span>";
+  }).join("");
+}
+
+const F = { years: new Set(), months: new Set(), subs: new Set() };
+
+function yearOptions(){
+  return [...new Set(RAW.map(r => String(r.y)))].sort((a, b) => b - a);
+}
+
+function mfSetup(id, name, key, getItems){
+  const root = $(id);
+  const btn = root.querySelector(".mf-btn");
+  const pop = root.querySelector(".mf-pop");
+
+  const paintBtn = () => {
+    const set = F[key];
+    const items = getItems().map(String);
+    const parts = items.filter(v => set.has(v));
+    let t = "";
+    if (set.size){
+      t = parts.join("/");
+      const extra = set.size - parts.length;
+      if (extra > 0) t += "+" + extra;
+      if (t.length > 16) t = t.slice(0, 15) + "…";
+    }
+    btn.innerHTML = name + "：" + (t ? "<b>" + esc(t) + "</b>" : "全部") + ' <span class="mf-arrow">▼</span>';
+    btn.classList.toggle("on", !!t);
+  };
+
+  const paintPop = () => {
+    const set = F[key];
+    pop.innerHTML = getItems().map(v => {
+      const s = String(v);
+      const on = set.has(s);
+      return '<label class="mf-it' + (on ? ' sel' : '') + '">' +
+        '<input type="checkbox"' + (on ? ' checked' : '') + ' data-v="' + esc(s) + '">' +
+        esc(s) + (key === "months" ? " 月" : "") + '</label>';
+    }).join("") +
+    '<div class="mf-act"><a data-a="all">全选</a><a data-a="none">清空</a></div>';
+  };
+
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const opening = !root.classList.contains("open");
+    document.querySelectorAll(".mf.open").forEach(m => m.classList.remove("open"));
+    root.classList.toggle("open", opening);
+    if (opening) paintPop();
+  });
+
+  pop.addEventListener("click", e => e.stopPropagation());
+
+  pop.addEventListener("change", e => {
+    const cb = e.target;
+    if (!cb || !cb.matches("input[type=checkbox]")) return;
+    const v = cb.dataset.v;
+    if (cb.checked) F[key].add(v); else F[key].delete(v);
+    paintBtn(); paintPop(); render();
+  });
+
+  pop.addEventListener("click", e => {
+    const a = e.target.closest("a[data-a]");
+    if (!a) return;
+    if (a.dataset.a === "all") getItems().forEach(v => F[key].add(String(v)));
+    else F[key].clear();
+    paintBtn(); paintPop(); render();
+  });
+
+  paintBtn();
+  root._mfPaint = () => { paintBtn(); };
+}
+
+document.addEventListener("click", () => {
+  document.querySelectorAll(".mf.open").forEach(m => m.classList.remove("open"));
+});
+
+function buildYearOptions(){
+  const items = yearOptions();
+  [...F.years].forEach(v => { if (!items.includes(v)) F.years.delete(v); });
+}
+
+function selYears(){ return F.years.size ? [...F.years].map(Number).sort((a, b) => a - b) : null; }
+function selMonths(){ return F.months.size ? [...F.months].map(Number).sort((a, b) => a - b) : null; }
+function selSubs(){ return F.subs.size ? CONFIG.targets.filter(t => F.subs.has(t)) : [...CONFIG.targets]; }
+function yLabel(ys){ return ys ? ys.join("/") + " 年" : "全部年份"; }
+function mLabel(ms){ return ms ? ms.join("/") + " 月" : "全部月份"; }
+
+function keyOf(r, dim, allYears){
+  if (dim === "single") return "TOTAL";
+  const mm = String(r.m).padStart(2, "0");
+  const q = "Q" + Math.ceil(r.m / 3);
+  if (dim === "month") return allYears ? (r.y + "-" + mm) : mm;
+  return allYears ? (r.y + "-" + q) : q;
+}
+
+function aggByDim(rows, dim, sub, allYears){
+  const map = new Map();
+  const list = rows.filter(r => r.sub === sub);
+
+  for (const r of list){
+    const k = keyOf(r, dim, allYears);
+    if (!map.has(k)) map.set(k, {
+      key: k, total: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0
+    });
+    const o = map.get(k);
+    o.total += r.amount;
+    o.cnt++;
+    if (r.invoiced){ o.invoiced += r.amount; o.invCnt++; }
+    if (r.submitted){ o.submitted += r.amount; }
+  }
+
+  const arr = [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+  arr.forEach(o => {
+    o.pending = o.total - o.invoiced;
+    o.rate = o.cnt ? o.invCnt / o.cnt : 0;
+  });
+  return arr;
+}
+
+let currentView = "overview";
+let overdueSort = "days";
+let supOpen = false;          // 供应商表是否已展开（跨重绘保持）
+
+function setOverdueSort(m){
+  if (overdueSort === m) return;
+  overdueSort = m;
+  render();
+}
+
+function render(){
+  charts.forEach(c => { try { c.destroy(); } catch(e){} });
+  charts.length = 0;
+
+  const years  = selYears();
+  const months = selMonths();
+  const subs   = selSubs();
+
+  let rows = RAW;
+  if (years)  rows = rows.filter(r => years.includes(r.y));
+  if (months) rows = rows.filter(r => months.includes(r.m));
+  rows = rows.filter(r => subs.includes(r.sub));
+
+  if (!rows.length){
+    $("sub").textContent = "没有匹配的数据";
+    $("content").innerHTML = "";
+    return;
+  }
+
+  const dim = (months && months.length === 1) ? "single" : "month";
+  const oneYear = (years && years.length === 1) ? String(years[0]) : null;
+
+  if (currentView === "overview"){
+    renderOverviewView(rows, dim, oneYear, subs);
+    return;
+  }
+  if (currentView === "dept"){
+    renderDeptView(rows, subs);
+    return;
+  }
+  if (currentView === "overdue"){
+    renderOverdueView(rows, subs);
+    return;
+  }
+
+  const data = {};
+  subs.forEach(t => data[t] = aggByDim(rows, dim, t, !oneYear));
+
+  const tot = { total: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0 };
+  subs.forEach(t => data[t].forEach(o => {
+    tot.total += o.total; tot.invoiced += o.invoiced;
+    tot.submitted += o.submitted || 0;
+    tot.cnt += o.cnt; tot.invCnt += o.invCnt;
+  }));
+  const pendingAmt = tot.total - tot.invoiced;
+  const rate = tot.cnt ? tot.invCnt / tot.cnt : 0;
+
+  const parts = [];
+  parts.push(yLabel(years));
+  parts.push(mLabel(months));
+  parts.push("Sub " + subs.join(" / "));
+  parts.push(fmtInt(tot.cnt) + " 张订单");
+  $("sub").textContent = parts.join(" · ");
+
+  $("content").innerHTML =
+    renderKpis(tot, pendingAmt, rate, "EPR税前总金额合计", true) +
+    renderTables(data, dim, subs, { oneYear: oneYear, months: months }) +
+    renderCharts(data, dim, subs, { oneYear: oneYear, months: months });
+}
+
+function renderDeptView(rows, subs){
+
+  const deptRows = rows.filter(r => r.dept && r.dept !== "");
+
+  if (!deptRows.length){
+    $("sub").textContent = "当前筛选下没有部门数据";
+    $("content").innerHTML =
+      '<div class="sec"><div class="empty">当前筛选范围内，G 列 Dept 都为空。<br>' +
+      '请确认 Excel 的 G 列（Dept）是否有值。</div></div>';
+    return;
+  }
+
+  const map = new Map();
+  const ccAgg = new Map();
+  const tot = { total: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0 };
+  for (const r of deptRows){
+    if (!map.has(r.dept)) map.set(r.dept, {
+      name: r.dept, total: 0, invoiced: 0, pending: 0, submitted: 0, cnt: 0, invCnt: 0
+    });
+    const o = map.get(r.dept);
+    o.total += r.amount;
+    o.cnt++;
+    if (r.invoiced){ o.invoiced += r.amount; o.invCnt++; }
+    if (r.submitted){ o.submitted += r.amount; }
+    tot.total += r.amount; tot.cnt++;
+    if (r.invoiced){ tot.invoiced += r.amount; tot.invCnt++; }
+    if (r.submitted){ tot.submitted += r.amount; }
+
+    const cc = r.costCenter && r.costCenter !== "" ? r.costCenter : "（未填 Cost Center）";
+    {
+      if (!ccAgg.has(r.dept)) ccAgg.set(r.dept, new Map());
+      const cm = ccAgg.get(r.dept);
+      if (!cm.has(cc)) cm.set(cc, { amount: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0 });
+      const co = cm.get(cc);
+      co.amount += r.amount; co.cnt++;
+      if (r.invoiced){ co.invoiced += r.amount; co.invCnt++; }
+      if (r.submitted){ co.submitted += r.amount; }
+    }
+  }
+
+  const list = [...map.values()].map(o => ({
+    ...o,
+    pending: o.total - o.invoiced,
+    rate: o.cnt ? o.invCnt / o.cnt : 0
+  })).sort((a, b) => b.total - a.total);
+
+  const pendingAmt = tot.total - tot.invoiced;
+  const rate = tot.cnt ? tot.invCnt / tot.cnt : 0;
+
+  const parts = [];
+  parts.push(yLabel(selYears()));
+  parts.push(mLabel(selMonths()));
+  parts.push("Sub " + subs.join(" / "));
+  parts.push(list.length + " 个部门");
+  parts.push(fmtInt(tot.cnt) + " 张订单");
+  $("sub").textContent = parts.join(" · ");
+
+  $("content").innerHTML =
+    renderKpis(tot, pendingAmt, rate) +
+    renderDeptTable(list, ccAgg) +
+    renderDeptCharts(list);
+}
+
+function toggleDept(tr){
+  const i = tr.dataset.di;
+  const open = tr.querySelector(".caret").classList.toggle("closed");
+  document.querySelectorAll('tr.cc-row[data-p="' + i + '"]').forEach(r => r.classList.toggle("cc-hid", open));
+}
+
+function toggleAllDept(a){
+  const fold = a.textContent.indexOf("全部折叠") === 0;
+  document.querySelectorAll("tr.dept-row").forEach(tr => {
+    const caret = tr.querySelector(".caret");
+    if (fold && !caret.classList.contains("closed")) toggleDept(tr);
+    else if (!fold && caret.classList.contains("closed")) toggleDept(tr);
+  });
+  a.textContent = fold ? "全部展开" : "全部折叠";
+}
+
+function renderDeptTable(list, ccAgg){
+  const sumT  = list.reduce((s,o) => s + o.total, 0);
+  const sumI  = list.reduce((s,o) => s + o.invoiced, 0);
+  const sumS  = list.reduce((s,o) => s + (o.submitted || 0), 0);
+
+  const rowsHtml = list.map((o, i) => {
+    const rate = o.total ? (o.submitted || 0) / o.total : 0;
+    const deptRow =
+      '<tr class="dept-row" data-di="' + i + '" onclick="toggleDept(this)" title="点击折叠/展开成本中心明细">' +
+        '<td><span class="caret">▼</span><span class="rank">' + (i + 1) + '</span><b>' + esc(o.name) + '</b></td>' +
+        '<td class="num"><b>' + fmtMoneyFull(o.total) + '</b></td>' +
+        '<td class="num">' + fmtMoneyFull(o.invoiced) + '</td>' +
+        '<td class="num">' + fmtMoneyFull(o.submitted || 0) + '</td>' +
+        '<td class="num ' + (o.pending > 0 ? '' : 'mute') + '">' + fmtMoneyFull(o.pending) + '</td>' +
+        '<td style="width:110px"><div class="bar-bg"><div class="bar-fg" style="width:' +
+          (rate * 100).toFixed(1) + '%"></div></div></td>' +
+      '</tr>';
+
+    const cm = ccAgg && ccAgg.get(o.name);
+    let ccRows = "";
+    if (cm && cm.size){
+      const ccs = [...cm.entries()].map(([name, v]) => ({ name, ...v }))
+        .sort((a, b) => b.amount - a.amount);
+      ccRows = ccs.map(c => {
+        const cr = c.amount ? (c.submitted || 0) / c.amount : 0;
+        return '<tr class="cc-row" data-p="' + i + '">' +
+          '<td style="padding-left:38px">└ ' + esc(c.name) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(c.amount) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(c.invoiced) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(c.submitted || 0) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(c.amount - c.invoiced) + '</td>' +
+          '<td><div class="bar-bg"><div class="bar-fg bar-rest" style="width:' +
+            (cr * 100).toFixed(1) + '%"></div></div></td>' +
+        '</tr>';
+      }).join("");
+    }
+    return deptRow + ccRows;
+  }).join("");
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">部门汇总</div>' +
+      '<div class="sec-m"><a href="javascript:void(0)" class="fold-all" onclick="toggleAllDept(this)">全部折叠</a></div>' +
+    '</div>' +
+    '<div class="sec-b">' +
+      '<div class="tbl-wrap" style="max-height:none"><table>' +
+        '<thead><tr>' +
+          '<th>部门</th>' +
+          '<th class="num">税前总金额</th>' +
+          '<th class="num">已收票金额</th>' +
+          '<th class="num">已交票金额</th>' +
+          '<th class="num">未收票金额</th>' +
+          '<th>已交费用比例</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody>' +
+        '<tfoot><tr>' +
+          '<td>合计</td>' +
+          '<td class="num">' + fmtMoneyFull(sumT) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(sumI) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(sumS) + '</td>' +
+          '<td class="num">' + fmtMoneyFull(sumT - sumI) + '</td>' +
+          '<td></td>' +
+        '</tr></tfoot>' +
+      '</table></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderDeptCharts(list){
+  const uid = Date.now();
+  const names = list.map(o => o.name);
+
+  const html =
+    '<div class="sec"><div class="sec-h">' +
+      '<div class="sec-t">部门图表</div>' +
+      '<div class="sec-m">金额对比与占比</div>' +
+    '</div><div class="sec-b"><div class="chart-grid-2">' +
+      '<div class="cbox"><div class="cbox-t">各部门金额对比</div>' +
+        '<div class="cbox-c cbox-tall"><canvas id="dBar' + uid + '"></canvas></div></div>' +
+      '<div class="cbox"><div class="cbox-t">部门金额占比</div>' +
+        '<div class="cbox-c cbox-tall"><canvas id="dPie' + uid + '"></canvas></div></div>' +
+    '</div></div></div>';
+
+  setTimeout(() => {
+    const barEl = document.getElementById("dBar" + uid);
+    if (barEl){
+      charts.push(new Chart(barEl, {
+        type: "bar",
+        data: {
+          labels: names,
+          datasets: [
+            { label: "已收票", data: list.map(o => o.invoiced), backgroundColor: "#2563eb", stack: "a", borderRadius: 2 },
+            { label: "未收票", data: list.map(o => o.pending),  backgroundColor: "#fbbf24", stack: "a", borderRadius: 2 }
+          ]
+        },
+        options: baseOpts(true)
+      }));
+    }
+
+    const pieEl = document.getElementById("dPie" + uid);
+    if (pieEl){
+      charts.push(new Chart(pieEl, pieConfig({
+        labels: names,
+        values: list.map(o => +o.total.toFixed(2)),
+        colors: ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6",
+                 "#f97316", "#6366f1", "#84cc16", "#ec4899", "#94a3b8"],
+        center: fmtMoney(list.reduce((s,o) => s + o.total, 0)),
+        centerSub: "采购总额"
+      })));
+    }
+  }, 0);
+
+  return html;
+}
+
+// 国外供应商：名称只由字母、数字（及空格和常见符号）组成，不含中文
+function isForeignSupplier(name){
+  if (!name) return false;
+  const s = String(name).trim();
+  if (!s || /[\u4e00-\u9fff\u3400-\u4dbf\uff00-\uffef]/.test(s)) return false;
+  return /[A-Za-z0-9]/.test(s) && /^[A-Za-z0-9\s.,&()'\/+\-_]+$/.test(s);
+}
+
+function renderOverviewView(rows, dim, oneYear, subs){
+  if (!rows.length){
+    $("sub").textContent = "没有匹配的数据";
+    $("content").innerHTML = "";
+    return;
+  }
+
+  const now = new Date();
+
+  const tot = { total: 0, invoiced: 0, submitted: 0, cnt: 0, invCnt: 0, subCnt: 0 };
+  for (const r of rows){
+    tot.total += r.amount;
+    tot.cnt++;
+    if (r.invoiced){ tot.invoiced += r.amount; tot.invCnt++; }
+    if (r.submitted){ tot.submitted += r.amount; tot.subCnt++; }
+  }
+  const onHand = tot.invoiced - tot.submitted;
+
+  // 国外供应商：税前总金额、其中收票日期为空（未收票）的金额
+  let fTotal = 0, fPend = 0, fCnt = 0, fPendCnt = 0;
+  const fNames = new Set();
+  for (const r of rows){
+    if (!isForeignSupplier(r.supplier)) continue;
+    fTotal += r.amount; fCnt++; fNames.add(r.supplier);
+    if (!r.invoiced){ fPend += r.amount; fPendCnt++; }
+  }
+  const fRatio = fTotal ? fPend / fTotal : 0;
+
+  const parts = [];
+  parts.push(yLabel(selYears()));
+  parts.push(mLabel(selMonths()));
+  parts.push("Sub " + subs.join(" / "));
+  parts.push(fmtInt(tot.cnt) + " 张订单");
+  $("sub").textContent = parts.join(" · ");
+
+  const kpiHtml =
+    '<div class="kpi-grid kpi-grid-5col">' +
+      '<div class="kpi hl"><div class="kpi-l">EPR税前总金额合计</div>' +
+        '<div class="kpi-v">' + fmtMoney(tot.total) + '</div>' +
+        '<div class="kpi-x">' + fmtMoneyFull(tot.total) + '</div></div>' +
+      '<div class="kpi has-ring"><div class="kpi-l">已收票金额</div>' +
+        '<div class="kpi-v">' + fmtMoney(tot.invoiced) + '</div>' +
+        '<div class="kpi-x">占比 ' + fmtPct(tot.total ? tot.invoiced / tot.total : 0) + '</div>' +
+        kring(tot.total ? tot.invoiced / tot.total : 0, "#2563eb") + '</div>' +
+      '<div class="kpi warn has-ring"><div class="kpi-l">已交票金额</div>' +
+        '<div class="kpi-v">' + fmtMoney(tot.submitted) + '</div>' +
+        '<div class="kpi-x">' + fmtInt(tot.subCnt) + ' 张已交票</div>' +
+        kring(tot.total ? (tot.submitted || 0) / tot.total : 0, "#f59e0b") + '</div>' +
+      '<div class="kpi' + (onHand < 0 ? '" style="border-left:3px solid #ef4444' : '') + '"><div class="kpi-l">On Hand</div>' +
+        '<div class="kpi-v' + (onHand < 0 ? ' over-t' : '') + '">' + fmtMoney(onHand) + '</div></div>' +
+      '<div class="kpi warn has-ring" title="国外供应商：名称只由字母和数字组成。比例 = 未收票金额 ÷ 国外供应商税前总金额">' +
+        '<div class="kpi-l">国外供应商未收票</div>' +
+        '<div class="kpi-v">' + fmtMoney(fPend) + '</div>' +
+        '<div class="kpi-x">' + fmtInt(fNames.size) + ' 家 · 税前总额 ' + fmtMoney(fTotal) + '</div>' +
+        kring(fRatio, "#dc2626") + '</div>' +
+    '</div>';
+
+  $("content").innerHTML =
+    kpiHtml +
+    renderBudgetLines() +
+    renderSupplier(rows, subs) +
+    renderCategoryTrend(rows);
+
+  setTimeout(() => {
+    const sp = document.getElementById("supPie");
+    if (sp && window.__SUP__ && window.__SUP__.values.length){
+      const d = window.__SUP__;
+      charts.push(new Chart(sp, pieConfig({
+        labels: d.labels,
+        values: d.values,
+        colors: d.colors || ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#94a3b8"],
+        center: fmtMoney(d.total),
+        centerSub: "采购总额"
+      })));
+    }
+  }, 0);
+}
+
+function renderCategoryTrend(rows){
+  const uid = Date.now();
+
+  const catTot = new Map();
+  for (const r of rows){
+    const c = r.category && r.category !== "" ? r.category : "（未填写）";
+    catTot.set(c, (catTot.get(c) || 0) + r.amount);
+  }
+  const topCats = [...catTot.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(e => e[0]);
+  const topSet = new Set(topCats);
+  const hasOther = [...catTot.keys()].length > topCats.length;
+
+  const monthMap = new Map();
+  for (const r of rows){
+    const mk = r.y + "-" + String(r.m).padStart(2, "0");
+    if (!monthMap.has(mk)) monthMap.set(mk, {});
+    const mo = monthMap.get(mk);
+    const c = r.category && r.category !== "" ? r.category : "（未填写）";
+    const key = topSet.has(c) ? c : (hasOther ? "其他" : c);
+    mo[key] = (mo[key] || 0) + r.amount;
+  }
+  const months = [...monthMap.keys()].sort();
+  const series = topCats.concat(hasOther ? ["其他"] : []);
+
+  const html =
+    '<div class="sec"><div class="sec-h">' +
+      '<div class="sec-t">月度采购趋势（按分类）</div>' +
+      '<div class="sec-m">分类 Top ' + topCats.length + (hasOther ? ' + 其他' : '') + ' · 共 ' + months.length + ' 个月</div>' +
+    '</div><div class="sec-b">' +
+      '<div style="height:340px"><canvas id="catTrend' + uid + '"></canvas></div>' +
+    '</div></div>';
+
+  setTimeout(() => {
+    const el = document.getElementById("catTrend" + uid);
+    if (!el) return;
+    const palette = ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6", "#94a3b8"];
+    charts.push(new Chart(el, {
+      type: "bar",
+      data: {
+        labels: months,
+        datasets: series.map((c, i) => ({
+          label: c,
+          data: months.map(m => +(monthMap.get(m)[c] || 0).toFixed(2)),
+          backgroundColor: palette[i % palette.length],
+          stack: "a",
+          borderRadius: 1,
+          maxBarThickness: 42
+        }))
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { position: "bottom", labels: { boxWidth: 9, boxHeight: 9, font: { size: 10.5 }, padding: 10 } },
+          tooltip: { callbacks: { label: ctx => ctx.dataset.label + "：" + fmtMoneyFull(ctx.parsed.y) } }
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, color: "#6b7688" } },
+          y: { stacked: true, beginAtZero: true, grid: { color: "#f0f3f7" },
+               ticks: { font: { size: 10 }, color: "#6b7688",
+                        callback: v => Math.abs(v) >= 1e4 ? (v/1e4) + "万" : v } }
+        }
+      }
+    }));
+  }, 0);
+
+  return html;
+}
+
+const OVERDUE_DAYS = 90;
+const BUCKETS = [
+  { key: "b1", label: "3-6 个月",   min: 90,  max: 180, color: "#f59e0b" },
+  { key: "b2", label: "6-12 个月",  min: 180, max: 365, color: "#ef4444" },
+  { key: "b3", label: "12 个月以上", min: 365, max: Infinity, color: "#7f1d1d" }
+];
+
+function daysBetween(ymd, now){
+  const ms = now.getTime() - Date.UTC(ymd.y, ymd.m - 1, ymd.d);
+  return Math.floor(ms / 86400000);
+}
+
+function bucketOf(days){
+  return BUCKETS.find(b => days >= b.min && days < b.max) || BUCKETS[BUCKETS.length - 1];
+}
+
+function renderOverdueView(rows, subs){
+  const now = new Date();
+  const todayYmd = { y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() };
+
+  // 超期未交票：已收到发票（Z 列有值）但还没交票（AB 列为空）。
+  // 天数从收票日期起算；收票列只写了「已收」等文字、没有日期时，退回按下单日期算。
+  const overdue = rows
+    .filter(r => r.invoiced && !r.submitted)
+    .map(r => ({ ...r, days: daysBetween(r.invYmd || r.ymd, now) }))
+    .filter(r => r.days > OVERDUE_DAYS)
+    .sort((a, b) => overdueSort === "amount" ? b.amount - a.amount : b.days - a.days);
+
+  if (!overdue.length){
+    $("sub").textContent = "当前筛选下没有超期未交票";
+    $("content").innerHTML =
+      '<div class="sec"><div class="empty" style="padding:56px 20px">' +
+        '<div style="font-size:15px;font-weight:600;color:#0f9d58;margin-bottom:8px">✓ 没有超期订单</div>' +
+        '<div>当前筛选范围内，所有已收票未交票的订单，收票后都不足 3 个月。</div>' +
+      '</div></div>';
+    return;
+  }
+
+  const sumAmt = overdue.reduce((s, r) => s + r.amount, 0);
+  const maxDays = Math.max(...overdue.map(r => r.days));
+  const avgDays = Math.round(overdue.reduce((s, r) => s + r.days, 0) / overdue.length);
+
+  const bucketAgg = BUCKETS.map(b => {
+    const items = overdue.filter(r => bucketOf(r.days).key === b.key);
+    return {
+      ...b,
+      amount: items.reduce((s, r) => s + r.amount, 0),
+      cnt: items.length
+    };
+  });
+
+  const deptMap = new Map();
+  for (const r of overdue){
+    const d = r.dept && r.dept !== "" ? r.dept : "（无部门）";
+    if (!deptMap.has(d)) deptMap.set(d, 0);
+    deptMap.set(d, deptMap.get(d) + r.amount);
+  }
+  const deptList = [...deptMap.entries()]
+    .map(([name, amount]) => ({ name, amount }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const parts = [];
+  parts.push("Sub " + subs.join(" / "));
+  parts.push("按今天（" + todayYmd.y + "-" + String(todayYmd.m).padStart(2,"0") + "-" + String(todayYmd.d).padStart(2,"0") + "）起算");
+  parts.push("超期 " + fmtInt(overdue.length) + " 张 · " + fmtMoney(sumAmt));
+  $("sub").textContent = parts.join(" · ");
+
+  $("content").innerHTML =
+    renderOverdueKpis(sumAmt, overdue.length, maxDays, avgDays) +
+    renderOverdueBuckets(bucketAgg) +
+    renderOverdueCharts(bucketAgg, deptList) +
+    renderOverdueTable(overdue);
+}
+
+function renderOverdueKpis(sumAmt, cnt, maxDays, avgDays){
+  const cards = [
+    { l: "EPR 超期未交票总额", v: fmtMoney(sumAmt), x: "收票超过 3 个月未交票", cls: "warn" },
+    { l: "超期订单数", v: fmtInt(cnt), x: "张", cls: "" },
+    { l: "拖得最久", v: fmtInt(maxDays), x: "天", cls: "" },
+    { l: "平均拖了", v: fmtInt(avgDays), x: "天", cls: "" }
+  ];
+  return '<div class="kpi-grid kpi-grid-4col">' + cards.map(c =>
+    '<div class="kpi ' + c.cls + '">' +
+      '<div class="kpi-l">' + c.l + '</div>' +
+      '<div class="kpi-v">' + c.v + '</div>' +
+      '<div class="kpi-x">' + c.x + '</div>' +
+    '</div>').join("") + '</div>';
+}
+
+function renderOverdueBuckets(bucketAgg){
+  const total = bucketAgg.reduce((s, b) => s + b.amount, 0);
+  const cards = bucketAgg.map(b =>
+    '<div class="age-card" style="border-top:3px solid ' + b.color + '">' +
+      '<div class="kpi-l">' + b.label + '</div>' +
+      '<div class="kpi-v" style="font-size:19px">' + fmtMoney(b.amount) + '</div>' +
+      '<div class="kpi-x">' + fmtInt(b.cnt) + ' 张 · 占 ' +
+        fmtPct(total ? b.amount / total : 0) + '</div>' +
+    '</div>').join("");
+
+  return '<div class="kpi-grid kpi-grid-3col">' + cards + '</div>';
+}
+
+function renderOverdueCharts(bucketAgg, deptList){
+  const uid = Date.now();
+
+  const html =
+    '<div class="sec"><div class="sec-h">' +
+      '<div class="sec-t">超期分析图</div>' +
+      '<div class="sec-m">账龄分布与部门分布</div>' +
+    '</div><div class="sec-b"><div class="chart-grid-2">' +
+      '<div class="cbox"><div class="cbox-t">账龄分布（金额）</div>' +
+        '<div class="cbox-c cbox-tall"><canvas id="oBar' + uid + '"></canvas></div></div>' +
+      '<div class="cbox"><div class="cbox-t">部门超期金额占比</div>' +
+        '<div class="cbox-c cbox-tall"><canvas id="oPie' + uid + '"></canvas></div></div>' +
+    '</div></div></div>';
+
+  setTimeout(() => {
+    const barEl = document.getElementById("oBar" + uid);
+    if (barEl){
+      charts.push(new Chart(barEl, {
+        type: "bar",
+        data: {
+          labels: bucketAgg.map(b => b.label),
+          datasets: [{
+            label: "超期金额",
+            data: bucketAgg.map(b => b.amount),
+            backgroundColor: bucketAgg.map(b => b.color),
+            borderRadius: 3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: ctx => fmtMoneyFull(ctx.parsed.y) } }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 11 }, color: "#6b7688" } },
+            y: { beginAtZero: true, grid: { color: "#f0f3f7" },
+                 ticks: { font: { size: 10 }, color: "#6b7688",
+                          callback: v => Math.abs(v) >= 1e4 ? (v/1e4) + "万" : v } }
+          }
+        }
+      }));
+    }
+
+    const pieEl = document.getElementById("oPie" + uid);
+    if (pieEl && deptList.length){
+      charts.push(new Chart(pieEl, pieConfig({
+        labels: deptList.map(d => d.name),
+        values: deptList.map(d => +d.amount.toFixed(2)),
+        colors: ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6",
+                 "#f97316", "#6366f1", "#84cc16", "#ec4899", "#94a3b8"],
+        center: fmtMoney(deptList.reduce((s,d) => s + d.amount, 0)),
+        centerSub: "超期总额"
+      })));
+    }
+  }, 0);
+
+  return html;
+}
+
+function renderOverdueTable(overdue){
+  const rowsHtml = overdue.map(r => {
+    const b = bucketOf(r.days);
+    return '<tr>' +
+      '<td class="num">' + esc(r.po || "—") + '</td>' +
+      '<td>' + r.ymd.y + '-' + String(r.ymd.m).padStart(2,"0") + '-' + String(r.ymd.d).padStart(2,"0") + '</td>' +
+      '<td>' + (r.invYmd ? r.invYmd.y + '-' + String(r.invYmd.m).padStart(2,"0") + '-' + String(r.invYmd.d).padStart(2,"0") : '—') + '</td>' +
+      '<td class="num"><b style="color:' + b.color + '">' + fmtInt(r.days) + ' 天</b></td>' +
+      '<td><span class="age-tag" style="background:' + b.color + '1a;color:' + b.color + '">' + b.label + '</span></td>' +
+      '<td>' + esc(r.dept || "—") + '</td>' +
+      '<td>' + esc(r.supplier || "—") + '</td>' +
+      '<td>' + esc(r.itemName || "—") + '</td>' +
+      '<td class="num">' + fmtMoneyFull(r.amount) + '</td>' +
+      '<td>Sub ' + esc(r.sub) + '</td>' +
+    '</tr>';
+  }).join("");
+
+  const sum = overdue.reduce((s, r) => s + r.amount, 0);
+
+  const mkBtn = (mode, label) =>
+    '<button class="ovsort' + (overdueSort === mode ? " on" : "") + '" onclick="setOverdueSort(\'' + mode + '\')">' + label + '</button>';
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">超期明细清单</div>' +
+      '<div class="sec-m" style="display:flex;align-items:center;gap:12px">' +
+        '<span>超期订单数量：' + fmtInt(overdue.length) + ' 张</span>' +
+        '<div class="ovsort-g">' +
+          mkBtn("days", "按超期时间排序") +
+          mkBtn("amount", "按金额排序") +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="sec-b">' +
+      '<div class="tbl-wrap" style="max-height:520px"><table style="min-width:900px">' +
+        '<thead><tr>' +
+          '<th class="num">PO</th>' +
+          '<th>下单日期</th>' +
+          '<th>收票日期</th>' +
+          '<th class="num">已拖</th>' +
+          '<th>账龄</th>' +
+          '<th>部门</th>' +
+          '<th>供应商</th>' +
+          '<th>物品名称</th>' +
+          '<th class="num">金额</th>' +
+          '<th>Sub</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody>' +
+        '<tfoot><tr>' +
+          '<td colspan="8">合计</td>' +
+          '<td class="num">' + fmtMoneyFull(sum) + '</td>' +
+          '<td></td>' +
+        '</tr></tfoot>' +
+      '</table></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function kring(ratio, color){
+  const r = isFinite(ratio) ? ratio : 0;
+  const v = Math.max(0, Math.min(r, 1));
+  const c = 2 * Math.PI * 21;
+  return '<svg class="kring" width="52" height="52" viewBox="0 0 52 52">' +
+    '<circle cx="26" cy="26" r="21" fill="none" stroke="#eef2f7" stroke-width="5"/>' +
+    (v > 0 ? '<circle cx="26" cy="26" r="21" fill="none" stroke="' + color + '" stroke-width="5" ' +
+      'stroke-linecap="round" stroke-dasharray="' + (v * c).toFixed(2) + ' ' + c.toFixed(2) + '" ' +
+      'transform="rotate(-90 26 26)"/>' : '') +
+    '<text x="26" y="26" text-anchor="middle" dominant-baseline="central" font-size="10" fill="#6b7688">' +
+      Math.round(r * 100) + '%</text>' +
+  '</svg>';
+}
+
+function renderKpis(tot, pendingAmt, rate, totalLabel, simple){
+  const total = tot.total || 0;
+  const cards = [
+    { l: totalLabel || "税前总金额合计", v: fmtMoney(tot.total), x: fmtMoneyFull(tot.total), cls: "hl" },
+    { l: "已收票金额", v: fmtMoney(tot.invoiced), x: "占比 " + fmtPct(total ? tot.invoiced/total : 0), cls: "",
+      ring: { r: total ? tot.invoiced/total : 0, c: "#2563eb" } },
+    { l: "已交票金额", v: fmtMoney(tot.submitted || 0), x: "占比 " + fmtPct(total ? (tot.submitted || 0)/total : 0), cls: "",
+      ring: { r: total ? (tot.submitted || 0)/total : 0, c: "#f59e0b" } },
+    { l: "未收票金额", v: fmtMoney(pendingAmt), x: "待跟进", cls: "warn",
+      ring: simple ? { r: total ? pendingAmt/total : 0, c: "#fbbf24" } : null }
+  ];
+  if (!simple) cards.push(
+    { l: "订单总数", v: fmtInt(tot.cnt), x: "张", cls: "" },
+    { l: "已收票订单", v: fmtInt(tot.invCnt), x: "张", cls: "" },
+    { l: "收票率", v: fmtPct(rate), x: fmtInt(tot.cnt - tot.invCnt) + " 张未收票", cls: "" }
+  );
+  return '<div class="kpi-grid' + (simple ? " kpi-grid-4col" : "") + '">' + cards.map(c =>
+    '<div class="kpi ' + c.cls + (c.ring ? ' has-ring' : '') + '">' +
+      '<div class="kpi-l">' + c.l + '</div>' +
+      '<div class="kpi-v">' + c.v + '</div>' +
+      '<div class="kpi-x">' + c.x + '</div>' +
+      (c.ring ? kring(c.ring.r, c.ring.c) : '') +
+    '</div>').join("") + '</div>';
+}
+
+function renderSupplier(rows, subs){
+  const SHOW_N = CONFIG.supplierShowN || 8;
+  const N      = CONFIG.supplierTopN || 20;
+  const PIE_N  = CONFIG.supplierPieN || 8;
+  const CR_N   = CONFIG.supplierCrN  || 5;
+
+  const map = new Map();
+  let grand = 0;
+  for (const r of rows){
+    const name = r.supplier && r.supplier !== "" ? r.supplier : "（未填写）";
+    if (!map.has(name)) map.set(name, { name, amount: 0, cnt: 0, invCnt: 0 });
+    const o = map.get(name);
+    o.amount += r.amount;
+    o.cnt++;
+    if (r.invoiced) o.invCnt++;
+    grand += r.amount;
+  }
+
+  const list = [...map.values()].sort((a, b) => b.amount - a.amount);
+
+  if (!list.length || grand <= 0){
+    return '<div class="sec"><div class="sec-h"><div class="sec-t">供应商集中度</div>' +
+      '<div class="sec-m">无数据</div></div>' +
+      '<div class="sec-b"><div class="empty">当前筛选下没有供应商数据。</div></div></div>';
+  }
+
+  const topShare = grand ? list.slice(0, N).reduce((s, o) => s + o.amount, 0) / grand : 0;
+  const crShare = grand ? list.slice(0, CR_N).reduce((s, o) => s + o.amount, 0) / grand : 0;
+
+  // 全部供应商都渲染出来，超出 SHOW_N 的行默认隐藏（CSS 控制），点「展开全部」才显示。
+  // 这样导出截图时，收起状态下隐藏的行不会被画进去。
+  // 展开时只显示前 N 家（CONFIG.supplierTopN，默认 20）。
+  // 【展开全部】功能已停用：如需恢复，把下面的 list.slice(0, N).map 改回 list.map，
+  //   并删掉下方 restRow2（「其余 X 家」第二行）的拼接即可。
+  // const rowHtml = list.map((o, i) => {
+  const rowHtml = list.slice(0, N).map((o, i) => {
+    const pct = grand ? o.amount / grand : 0;
+    return '<tr' + (i >= SHOW_N ? ' class="sup-more"' : '') + '>' +
+      '<td><span class="rank">' + (i + 1) + '</span>' + esc(o.name) + '</td>' +
+      '<td class="num">' + fmtMoneyFull(o.amount) + '</td>' +
+      '<td class="num"><b>' + fmtPct(pct) + '</b></td>' +
+      '<td class="num">' + fmtInt(o.cnt) + '</td>' +
+      '<td class="num">' + fmtPct(o.cnt ? o.invCnt / o.cnt : 0) + '</td>' +
+      '<td style="width:110px"><div class="bar-bg"><div class="bar-fg" style="width:' +
+        (pct * 100).toFixed(1) + '%"></div></div></td>' +
+    '</tr>';
+  }).join("");
+
+  const restList = list.slice(SHOW_N);
+  const restAmount = restList.reduce((s, o) => s + o.amount, 0);
+  const restCnt = restList.length;
+  const restPct = grand ? restAmount / grand : 0;
+
+  // 展开后（前 N 家）剩余部分的汇总行
+  const rest2List = list.slice(N);
+  const rest2Amount = rest2List.reduce((s, o) => s + o.amount, 0);
+  const rest2Pct = grand ? rest2Amount / grand : 0;
+  const restRow2 = rest2List.length
+    ? '<tr class="sup-more"><td><span class="rank rank-o">…</span>其余 ' + rest2List.length + ' 家</td>' +
+      '<td class="num">' + fmtMoneyFull(rest2Amount) + '</td>' +
+      '<td class="num"><b>' + fmtPct(rest2Pct) + '</b></td>' +
+      '<td class="num">—</td><td class="num">—</td>' +
+      '<td><div class="bar-bg"><div class="bar-fg bar-rest" style="width:' +
+        (rest2Pct * 100).toFixed(1) + '%"></div></div></td></tr>'
+    : '';
+
+  // 饼图不跟表格一样列 20 块（扇区会碎、颜色会循环），只画前 PIE_N 家 + 其余
+  const pieTop = list.slice(0, PIE_N);
+  const pieRestList = list.slice(PIE_N);
+  const pieRestAmt = pieRestList.reduce((s, o) => s + o.amount, 0);
+  const PIE_COLORS = ["#2563eb", "#0f9d58", "#f59e0b", "#8b5cf6", "#ef4444",
+                      "#14b8a6", "#f97316", "#6366f1", "#94a3b8"];
+
+  window.__SUP__ = {
+    labels: pieTop.map(o => o.name).concat(pieRestList.length ? ["其余 " + pieRestList.length + " 家"] : []),
+    values: pieTop.map(o => +o.amount.toFixed(2)).concat(pieRestList.length ? [+pieRestAmt.toFixed(2)] : []),
+    colors: PIE_COLORS.slice(0, pieTop.length).concat(pieRestList.length ? ["#cbd5e1"] : []),
+    total: +grand.toFixed(2)
+  };
+
+  const moreBtn = list.length > SHOW_N
+    ? '<button class="sec-btn" id="btnSupMore" data-total="' + list.length + '" data-show="' + SHOW_N + '">' +
+        (supOpen ? '收起（只看前 ' + SHOW_N + ' 家）' : '展开前 ' + Math.min(N, list.length) + ' 家') + '</button>'
+        // 原「展开全部」按钮文案（已停用）：
+        // (supOpen ? '收起（只看前 ' + SHOW_N + ' 家）' : '展开全部（共 ' + list.length + ' 家）') + '</button>'
+    : '';
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">供应商集中度</div>' +
+      '<div class="sec-m" style="display:flex;gap:11px;align-items:center;flex-wrap:wrap">' +
+        '<span>共 ' + list.length + ' 家 · 前 ' + CR_N + ' 家占 <b>' + fmtPct(crShare) + '</b>' +
+          ' · 前 ' + Math.min(N, list.length) + ' 家占 <b>' + fmtPct(topShare) + '</b></span>' +
+        moreBtn +
+      '</div>' +
+    '</div>' +
+    '<div class="sec-b">' +
+      '<div class="sup-wrap">' +
+        '<div class="tbl-wrap" style="max-height:none;flex:1 1 420px">' +
+          '<table class="sup-tbl' + (supOpen ? ' open' : '') + '" style="min-width:520px">' +
+            '<thead><tr>' +
+              '<th>供应商</th>' +
+              '<th class="num">采购额</th>' +
+              '<th class="num">占比</th>' +
+              '<th class="num">订单数</th>' +
+              '<th class="num">收票率</th>' +
+              '<th>占比图</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rowHtml +
+              (restCnt > 0
+                ? '<tr class="sup-rest"><td><span class="rank rank-o">…</span>其余 ' + restCnt + ' 家</td>' +
+                  '<td class="num">' + fmtMoneyFull(restAmount) + '</td>' +
+                  '<td class="num"><b>' + fmtPct(restPct) + '</b></td>' +
+                  '<td class="num">—</td><td class="num">—</td>' +
+                  '<td><div class="bar-bg"><div class="bar-fg bar-rest" style="width:' +
+                    (restPct * 100).toFixed(1) + '%"></div></div></td></tr>'
+                : '') +
+              restRow2 +
+            '</tbody>' +
+            '<tfoot><tr><td>合计</td><td class="num">' + fmtMoneyFull(grand) +
+              '</td><td class="num">100.0%</td><td class="num">' +
+              fmtInt(list.reduce((s, o) => s + o.cnt, 0)) + '</td>' +
+              '<td class="num">—</td><td></td></tr></tfoot>' +
+          '</table>' +
+        '</div>' +
+        '<div class="pie-box"><canvas id="supPie"></canvas></div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function toggleSupMore(btn){
+  const tbl = document.querySelector(".sup-tbl");
+  if (!tbl) return;
+  supOpen = !supOpen;
+  tbl.classList.toggle("open", supOpen);
+  const show = btn.dataset.show || CONFIG.supplierShowN || 8;
+  const topN = Math.min(+(CONFIG.supplierTopN || 20), +(btn.dataset.total || 0) || Infinity);
+  btn.textContent = supOpen ? "收起（只看前 " + show + " 家）" : "展开前 " + topN + " 家";
+  // 原「展开全部」文案（已停用）：
+  // btn.textContent = supOpen ? "收起（只看前 " + show + " 家）" : "展开全部（共 " + (btn.dataset.total || "") + " 家）";
+}
+
+function dimLabel(k, dim){
+  if (dim === "single") return "本月合计";
+  if (k.includes("-")){
+    const parts = k.split("-");
+    const y = parts[0], rest = parts[1];
+    if (dim === "month") return y + "-" + rest + " 月";
+    return y + " " + rest.replace("Q", "第 ") + " 季度";
+  }
+  if (dim === "month") return k + " 月";
+  return k.replace("Q", "第 ") + " 季度";
+}
+
+// 把聚合 key 还原成「年 + 月」，用于取对应月份的预算
+function ymOfKey(key, dim, ctx){
+  ctx = ctx || {};
+  if (dim === "single"){
+    const m = (ctx.months && ctx.months.length === 1) ? +ctx.months[0] : null;
+    let y = ctx.oneYear ? +ctx.oneYear : null;
+    if (y == null){ const py = pickBudgetYear(); y = py == null ? null : +py; }
+    return { y: y, m: m };
+  }
+  if (key.indexOf("-") >= 0){
+    const p = key.split("-");
+    return { y: +p[0], m: +p[1] };
+  }
+  let y = ctx.oneYear ? +ctx.oneYear : null;
+  if (y == null){ const py = pickBudgetYear(); y = py == null ? null : +py; }
+  return { y: y, m: +key };
+}
+
+function budOfRow(key, dim, ctx, scope){
+  const ym = ymOfKey(key, dim, ctx);
+  if (!ym.y || !ym.m) return null;
+  const arr = monthBudgetsOf(ym.y, scope);
+  const v = arr[ym.m - 1];
+  return (v == null || v <= 0) ? null : v;
+}
+
+// 预算进度单元格：条形 + 百分比；超 100% 标红，未设预算显示提示
+function budCell(ratio, tip){
+  const title = tip ? ' title="' + esc(tip) + '"' : '';
+  if (ratio == null || !isFinite(ratio)){
+    return '<div class="rate-cell" title="这个月还没填 Sub 预算，点标题旁的「预算设置」补上">' +
+      '<div class="bar-bg"></div><span class="rt">未设预算</span></div>';
+  }
+  const w = Math.max(0, Math.min(100, ratio * 100));
+  const tone = ratio > 1 ? "bar-over" : (ratio >= 0.9 ? "bar-warn" : "");
+  return '<div class="rate-cell"' + (title || (' title="当月税前总金额 ÷ 当月预算 = ' + fmtPct(ratio) + '"')) + '>' +
+    '<div class="bar-bg"><div class="bar-fg ' + tone + '" style="width:' + w.toFixed(1) + '%"></div></div>' +
+    '<span class="rt' + (ratio > 1 ? ' over' : '') + '">' + fmtPct(ratio) + '</span></div>';
+}
+
+function renderTables(data, dim, subs, ctx){
+  const isSingle = (dim === "single");
+  const unit = isSingle ? "汇总" : (dim === "month" ? "月份" : "季度");
+  const budSub = CONFIG.budgetSub;
+  let html = "";
+
+  subs.forEach(t => {
+    const arr = data[t];
+    if (!arr.length) {
+      html += '<div class="sec"><div class="sec-h"><div class="sec-t">' +
+        '<span class="pill">Sub ' + t + '</span> 发票统计</div><div class="sec-m">无数据</div></div>' +
+        '<div class="sec-b"><div class="empty">该 Sub 在当前筛选下没有记录。</div></div></div>';
+      return;
+    }
+
+    const useBudget = (t === budSub);
+    const sumT = arr.reduce((s,o) => s + o.total, 0);
+    const sumI = arr.reduce((s,o) => s + o.invoiced, 0);
+    const sumS = arr.reduce((s,o) => s + (o.submitted || 0), 0);
+    const sumP = sumT - sumI;
+
+    let budSum = 0, budUsed = 0, budMonths = 0;
+
+    let rowsHtml = arr.map(o => {
+      const rate = o.total ? (o.submitted || 0) / o.total : 0;
+      let lastCell;
+      if (useBudget){
+        const bud = budOfRow(o.key, dim, ctx, t);
+        if (bud){
+          budSum += bud; budUsed += o.total; budMonths++;
+          lastCell = '<td style="width:160px">' + budCell(o.total / bud) + '</td>';
+        } else {
+          lastCell = '<td style="width:160px">' + budCell(null) + '</td>';
+        }
+      } else {
+        lastCell = '<td style="width:110px"><div class="bar-bg"><div class="bar-fg" style="width:' +
+          (rate * 100).toFixed(1) + '%"></div></div></td>';
+      }
+      return '<tr>' +
+        '<td>' + dimLabel(o.key, dim) + '</td>' +
+        '<td class="num">' + fmtMoneyFull(o.total) + '</td>' +
+        '<td class="num">' + fmtMoneyFull(o.invoiced) + '</td>' +
+        '<td class="num">' + fmtMoneyFull(o.submitted || 0) + '</td>' +
+        '<td class="num ' + (o.pending > 0 ? '' : 'mute') + '">' + fmtMoneyFull(o.pending) + '</td>' +
+        lastCell +
+      '</tr>';
+    }).join("");
+
+    const totalRatio = (useBudget && budSum > 0) ? budUsed / budSum : null;
+
+    html +=
+      '<div class="sec">' +
+        '<div class="sec-h">' +
+          '<div class="sec-t"><span class="pill">Sub ' + t + '</span> 发票统计' +
+            (useBudget
+              ? '<button class="sec-btn" data-budget-sub="' + esc(t) + '">预算设置</button>'
+              : '') +
+          '</div>' +
+          '<div class="sec-m">' +
+            (isSingle ? '当前筛选汇总' : arr.length + ' 个' + unit) +
+            ' · 合计 ' + fmtMoneyFull(sumT) +
+            (useBudget && budMonths < arr.length
+              ? ' · <span class="sec-note">' + budMonths + '/' + arr.length + ' 个月已设预算</span>'
+              : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="sec-b">' +
+          '<div class="tbl-wrap"><table>' +
+            '<thead><tr>' +
+              '<th>' + unit + '</th>' +
+              '<th class="num">税前总金额</th>' +
+              '<th class="num">已收票金额</th>' +
+              '<th class="num">已交票金额</th>' +
+              '<th class="num">未收票金额</th>' +
+              (useBudget
+                ? '<th title="当月税前总金额 ÷ 当月预算，超 100% 标红">预算进度</th>'
+                : '<th>已交费用比例</th>') +
+            '</tr></thead>' +
+            '<tbody>' + rowsHtml + '</tbody>' +
+            '<tfoot><tr>' +
+              '<td>合计</td>' +
+              '<td class="num">' + fmtMoneyFull(sumT) + '</td>' +
+              '<td class="num">' + fmtMoneyFull(sumI) + '</td>' +
+              '<td class="num">' + fmtMoneyFull(sumS) + '</td>' +
+              '<td class="num">' + fmtMoneyFull(sumP) + '</td>' +
+              '<td style="width:160px">' + (useBudget
+                ? budCell(totalRatio, budMonths < arr.length ? '按已设预算的 ' + budMonths + ' 个月计算，其余月份未设预算' : '')
+                : '') + '</td>' +
+            '</tr></tfoot>' +
+          '</table></div>' +
+        '</div>' +
+      '</div>';
+  });
+
+  return html;
+}
+
+function renderCharts(data, dim, subs, ctx){
+  // 月度 Sub 图表：3 张
+  // ① 月度金额趋势（各 Sub 并排柱，已收/未收票堆叠，+ 预算 Sub 的月预算虚线）
+  // ② 收票情况对比（横向百分比条，按 Sub）
+  // ③ 月度收票率趋势（折线，按 Sub，口径 = 已收票订单数 ÷ 订单数）
+  // 只选单月时 ① ③ 无意义，只显示 ②
+  ctx = ctx || {};
+  const isSingle = (dim === "single");
+  const uid = Date.now();
+  const SUB_COLORS = {
+    "703": { inv: "#2563eb", pend: "#bfdbfe", line: "#2563eb" },
+    "764": { inv: "#0f9d58", pend: "#bbf7d0", line: "#0f9d58" }
+  };
+  const colorOf = (t, i) => SUB_COLORS[t] ||
+    [{ inv: "#8b5cf6", pend: "#ddd6fe", line: "#8b5cf6" }, { inv: "#f59e0b", pend: "#fde68a", line: "#f59e0b" }][i % 2];
+
+  // ② 收票情况对比（HTML 横向条，导出截图也清晰）
+  const cmpRows = subs.map((t, i) => {
+    const arr = data[t] || [];
+    const T = arr.reduce((s, o) => s + o.total, 0);
+    const I = arr.reduce((s, o) => s + o.invoiced, 0);
+    const C = arr.reduce((s, o) => s + o.cnt, 0);
+    const IC = arr.reduce((s, o) => s + o.invCnt, 0);
+    const r = T ? I / T : 0;
+    const c = colorOf(t, i);
+    return '<div class="sc-row">' +
+      '<div class="sc-h"><span class="pill">Sub ' + esc(t) + '</span>' +
+        '<span class="sc-tot">' + fmtMoney(T) + ' · ' + fmtInt(C) + ' 张</span></div>' +
+      '<div class="sc-bar">' +
+        '<div style="width:' + (r * 100).toFixed(1) + '%;background:' + c.inv + '"></div>' +
+        '<div style="width:' + ((1 - r) * 100).toFixed(1) + '%;background:#fbbf24"></div>' +
+      '</div>' +
+      '<div class="sc-leg">' +
+        '<span><i style="background:' + c.inv + '"></i>已收票 ' + fmtMoney(I) + '（' + fmtPct(r) + '）· ' + fmtInt(IC) + ' 张</span>' +
+        '<span><i style="background:#fbbf24"></i>未收票 ' + fmtMoney(T - I) + '（' + fmtPct(1 - r) + '）· ' + fmtInt(C - IC) + ' 张</span>' +
+      '</div>' +
+    '</div>';
+  }).join("");
+
+  const cmpBox = '<div class="cbox"><div class="cbox-t">收票情况对比</div>' +
+    '<div class="sc-wrap">' + cmpRows + '</div></div>';
+
+  let html = '<div class="sec"><div class="sec-h">' +
+    '<div class="sec-t">图表</div>' +
+    '<div class="sec-m">' + (isSingle ? "当前月份收票情况" : "金额趋势 · 收票对比 · 收票率趋势") + '</div>' +
+    '</div><div class="sec-b">';
+
+  if (isSingle){
+    html += '<div class="sc-single">' + cmpBox + '</div></div></div>';
+    return html;
+  }
+
+  html +=
+    '<div class="sc-grid">' +
+      '<div class="cbox"><div class="cbox-t">月度金额趋势（已收票 / 未收票' +
+        (subs.includes(CONFIG.budgetSub) ? ' · 虚线为 Sub ' + esc(CONFIG.budgetSub) + ' 月预算' : '') + '）</div>' +
+        '<div class="cbox-c" style="height:300px"><canvas id="scTrend' + uid + '"></canvas></div></div>' +
+      cmpBox +
+    '</div>' +
+    '<div class="cbox" style="margin-top:14px"><div class="cbox-t">月度收票率趋势（已收票订单数 ÷ 订单数）</div>' +
+      '<div class="cbox-c" style="height:230px"><canvas id="scRate' + uid + '"></canvas></div></div>' +
+    '</div></div>';
+
+  const keys = [...new Set(subs.flatMap(t => (data[t] || []).map(o => o.key)))].sort();
+  const labels = keys.map(k => dimLabel(k, dim));
+
+  setTimeout(() => {
+    // ① 月度金额趋势
+    const el1 = document.getElementById("scTrend" + uid);
+    if (el1){
+      const ds = [];
+      subs.forEach((t, i) => {
+        const m = new Map((data[t] || []).map(o => [o.key, o]));
+        const c = colorOf(t, i);
+        ds.push({ type: "bar", label: "Sub " + t + " 已收票", data: keys.map(k => m.get(k) ? +m.get(k).invoiced.toFixed(2) : 0),
+                  backgroundColor: c.inv, stack: "s" + t, borderRadius: 2, maxBarThickness: 26, order: 2 });
+        ds.push({ type: "bar", label: "Sub " + t + " 未收票", data: keys.map(k => m.get(k) ? +m.get(k).pending.toFixed(2) : 0),
+                  backgroundColor: "#fbbf24", stack: "s" + t, borderRadius: 2, maxBarThickness: 26, order: 2 });
+      });
+      const bs = CONFIG.budgetSub;
+      if (subs.includes(bs)){
+        const bud = keys.map(k => budOfRow(k, dim, ctx, bs));
+        if (bud.some(v => v != null)){
+          ds.push({ type: "line", label: "Sub " + bs + " 月预算", data: bud, borderColor: "#dc2626",
+                    borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, pointBackgroundColor: "#dc2626",
+                    fill: false, spanGaps: true, order: 1 });
+        }
+      }
+      charts.push(new Chart(el1, {
+        data: { labels: labels, datasets: ds },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 9, boxHeight: 9, font: { size: 10.5 }, padding: 10 } },
+            tooltip: { callbacks: { label: c => c.dataset.label + "：" + (c.parsed.y == null ? "未设置" : fmtMoneyFull(c.parsed.y)) } }
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10.5 }, color: "#6b7688" } },
+            y: { stacked: true, beginAtZero: true, grid: { color: "#f0f3f7" },
+                 ticks: { font: { size: 10 }, color: "#6b7688", callback: v => Math.abs(v) >= 1e4 ? (v/1e4) + "万" : v } }
+          }
+        }
+      }));
+    }
+
+    // ③ 月度收票率趋势
+    const el3 = document.getElementById("scRate" + uid);
+    if (el3){
+      charts.push(new Chart(el3, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: subs.map((t, i) => {
+            const m = new Map((data[t] || []).map(o => [o.key, o]));
+            const c = colorOf(t, i);
+            return { label: "Sub " + t, data: keys.map(k => { const o = m.get(k); return o && o.cnt ? +(o.invCnt / o.cnt * 100).toFixed(1) : null; }),
+                     borderColor: c.line, backgroundColor: c.line, borderWidth: 2, pointRadius: 3, tension: .25, spanGaps: true };
+          })
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 9, boxHeight: 9, font: { size: 10.5 }, padding: 10 } },
+            tooltip: { callbacks: { label: c => c.dataset.label + "：" + (c.parsed.y == null ? "—" : c.parsed.y + "%") } }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 10.5 }, color: "#6b7688" } },
+            y: { min: 0, max: 100, grid: { color: "#f0f3f7" },
+                 ticks: { font: { size: 10 }, color: "#6b7688", stepSize: 25, callback: v => v + "%" } }
+          }
+        }
+      }));
+    }
+  }, 0);
+
+  return html;
+}
+
+function pieConfig(p){
+  return {
+    type: "doughnut",
+    data: {
+      labels: p.labels,
+      datasets: [{
+        data: p.values,
+        backgroundColor: p.colors,
+        borderColor: "#fff",
+        borderWidth: 2,
+        hoverOffset: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "62%",
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { boxWidth: 9, boxHeight: 9, font: { size: 10.5 }, padding: 8 }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const pct = total ? (ctx.parsed / total * 100).toFixed(1) : 0;
+              return ctx.label + "：" + fmtMoneyFull(ctx.parsed) + "（" + pct + "%）";
+            }
+          }
+        }
+      }
+    },
+    plugins: [{
+      id: "centerText",
+      afterDraw(chart){
+        const { ctx, chartArea } = chart;
+        if (!chartArea) return;
+        const cx = (chartArea.left + chartArea.right) / 2;
+        const cy = (chartArea.top + chartArea.bottom) / 2;
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#1a2233";
+        ctx.font = "600 15px -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif";
+        ctx.fillText(p.center, cx, cy - 6);
+        ctx.fillStyle = "#8b95a5";
+        ctx.font = "400 10.5px -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif";
+        ctx.fillText(p.centerSub, cx, cy + 11);
+        ctx.restore();
+      }
+    }]
+  };
+}
+
+function barConfig(p){
+  return {
+    type: "bar",
+    data: {
+      labels: p.labels,
+      datasets: [
+        { label: "已收票", data: p.invoiced, backgroundColor: "#2563eb", stack: "a", borderRadius: 2 },
+        { label: "未收票", data: p.pending,  backgroundColor: "#fbbf24", stack: "a", borderRadius: 2 }
+      ]
+    },
+    options: baseOpts(true)
+  };
+}
+
+function baseOpts(money){
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { position: "bottom", labels: { boxWidth: 10, boxHeight: 10, font: { size: 11 }, padding: 12 } },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y;
+            return ctx.dataset.label + "：" + (money ? fmtMoneyFull(v) : fmtInt(v) + " 张");
+          }
+        }
+      }
+    },
+    scales: {
+      x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, color: "#6b7688" } },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        grid: { color: "#f0f3f7" },
+        ticks: {
+          font: { size: 11 }, color: "#6b7688",
+          callback: v => money ? (Math.abs(v) >= 1e4 ? (v/1e4) + "万" : v) : v
+        }
+      }
+    }
+  };
+}
+
+function esc(s){
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+let __budMem = {};
+
+function numOrNull(v){
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+
+function parseAmt(s){
+  if (s === null || s === undefined) return null;
+  let t = String(s).replace(/[，,\s¥￥]/g, "");
+  if (t === "") return null;
+  let mul = 1;
+  if (/万$/.test(t)){ mul = 1e4; t = t.replace(/万$/, ""); }
+  else if (/亿$/.test(t)){ mul = 1e8; t = t.replace(/亿$/, ""); }
+  const n = parseFloat(t);
+  return isFinite(n) ? Math.round(n * mul) : null;
+}
+
+function normBudgetEntry(b){
+  b = b || {};
+  let m = [0,1,2,3,4,5,6,7,8,9,10,11].map(i => numOrNull((b.m || [])[i]));
+  if (m.every(v => v == null) && Array.isArray(b.q)){
+    const qv = [0,1,2,3].map(i => numOrNull(b.q[i]));
+    if (qv.some(v => v != null)){
+      m = qv.reduce((acc, v) => acc.concat([v, v, v]), []);
+    }
+  }
+  return { total: numOrNull(b.total), m: m };
+}
+
+function emptyBudgetEntry(){
+  return { total: null, m: [null,null,null,null,null,null,null,null,null,null,null,null] };
+}
+
+function loadBudget(){
+  let obj = null;
+  try {
+    const raw = localStorage.getItem(BUDGET_KEY);
+    if (raw) obj = JSON.parse(raw);
+  } catch(e){ obj = null; }
+  if (!obj || typeof obj !== "object") obj = __budMem || {};
+
+  for (const y in BUDGET){
+    if (!obj[y] && BUDGET[y]) obj[y] = JSON.parse(JSON.stringify(BUDGET[y]));
+  }
+
+  const out = {};
+  for (const y in obj){
+    const b = obj[y] || {};
+    const e = normBudgetEntry(b);
+    // subs：按 Sub 单独设的预算（703 / 764），total+m 仍是「合计」口径，兼容旧数据
+    e.subs = {};
+    if (b.subs && typeof b.subs === "object"){
+      for (const s in b.subs) e.subs[s] = normBudgetEntry(b.subs[s]);
+    }
+    out[y] = e;
+  }
+  return out;
+}
+
+function saveBudget(obj){
+  __budMem = obj;
+  try { localStorage.setItem(BUDGET_KEY, JSON.stringify(obj)); } catch(e){}
+}
+
+// scope: "all"（合计，默认） | "703" | "764"
+function getBudget(year, scope){
+  const all = loadBudget();
+  const e = all[String(year)] || emptyBudgetEntry();
+  if (!scope || scope === "all") return e;
+  return (e.subs && e.subs[scope]) ? e.subs[scope] : emptyBudgetEntry();
+}
+
+// 按月预算：返回 12 个数（未设置的为 null）
+function monthBudgetsOf(year, scope){
+  const b = getBudget(year, scope);
+  return b.m;
+}
+
+function pickBudgetYear(){
+  if (F.years.size === 1) return [...F.years][0];
+  let mx = null;
+  for (const r of RAW){ if (mx === null || r.y > mx) mx = r.y; }
+  return mx === null ? null : String(mx);
+}
+
+function monthProgress(year, mi){
+  const y = +year;
+  const s = Date.UTC(y, mi, 1);
+  const e = Date.UTC(y, mi + 1, 1);
+  const t = Date.now();
+  if (t <= s) return 0;
+  if (t >= e) return 1;
+  return (t - s) / (e - s);
+}
+
+function yearProgress(year){
+  const y = +year;
+  const s = Date.UTC(y, 0, 1);
+  const e = Date.UTC(y + 1, 0, 1);
+  const t = Date.now();
+  if (t <= s) return 0;
+  if (t >= e) return 1;
+  return (t - s) / (e - s);
+}
+
+function fmtGap(v){
+  return v >= 0 ? "剩余 " + fmtMoney(v) : "超支 " + fmtMoney(-v);
+}
+
+function budgetVerdict(budTotal, used, tpY, ro){
+  if (budTotal == null || budTotal <= 0){
+    return { cls: "", txt: ro
+      ? "尚未设置年度预算。当前页面为只读模式，请由维护人在源文件中配置预算。"
+      : "尚未设置年度预算。点右上角「设置预算」填入金额后，这里会自动计算执行率、剩余额度和超支预警。" };
+  }
+  const r = used / budTotal;
+  if (r > 1){
+    return { cls: "bad", txt: "已超出年度预算 " + fmtMoney(used - budTotal) + "（" + fmtPct(r - 1) + "）。建议立即冻结非必要采购，或启动预算追加审批。" };
+  }
+  if (tpY < 0.05){
+    return { cls: "", txt: "年度刚开始（时间进度 " + fmtPct(tpY) + "），样本量偏小，暂不做全年趋势预测。" };
+  }
+  const pp = Math.abs(r - tpY) * 100;
+  const forecast = used / tpY;
+  const over = forecast - budTotal;
+  if (r > tpY + 0.03){
+    return { cls: "bad", txt: "快于时间进度 " + pp.toFixed(1) + " 个百分点。按当前节奏，年末将支出 " + fmtMoney(forecast) + "，超出预算约 " + fmtMoney(over) + "。" };
+  }
+  if (r < tpY - 0.03){
+    return { cls: "ok", txt: "慢于时间进度 " + pp.toFixed(1) + " 个百分点。按当前节奏，年末将支出 " + fmtMoney(forecast) + "，预计结余 " + fmtMoney(-over) + "。" };
+  }
+  return { cls: "ok", txt: "进度与时间基本持平（相差 " + pp.toFixed(1) + " 个百分点）。按当前节奏，年末支出约 " + fmtMoney(forecast) + "，在预算范围内。" };
+}
+
+function renderBudgetLines(){
+  const years = [...new Set(RAW.filter(r => !F.years.size || F.years.has(String(r.y))).map(r => String(r.y)))].sort((a, b) => b - a);
+  if (!years.length) return "";
+
+  const oneYear = (years.length === 1) ? years[0] : null;
+  let topHtml = "";
+  if (oneYear){
+    const yRows = RAW.filter(r => String(r.y) === String(oneYear));
+    const usedTotal0 = yRows.reduce((s, r) => s + r.amount, 0);
+    const b0 = getBudget(oneYear);
+    const mSum0 = b0.m.every(v => v == null) ? null : b0.m.reduce((s, v) => s + (v || 0), 0);
+    const budTotal0 = (b0.total != null && b0.total > 0) ? b0.total : mSum0;
+    const tpY0 = yearProgress(oneYear);
+    const rateY0 = (budTotal0 && budTotal0 > 0) ? usedTotal0 / budTotal0 : null;
+    const vd = budgetVerdict(budTotal0, usedTotal0, tpY0, READONLY);
+    topHtml =
+      '<div class="bud-top">' +
+        '<div class="bud-m"><div class="bud-m-l">年度预算</div>' +
+          '<div class="bud-m-v">' + (budTotal0 != null ? fmtMoney(budTotal0) : '—') + '</div></div>' +
+        '<div class="bud-m"><div class="bud-m-l">已发生（下单口径）</div>' +
+          '<div class="bud-m-v">' + fmtMoney(usedTotal0) + '</div></div>' +
+        '<div class="bud-m"><div class="bud-m-l">执行率</div>' +
+          '<div class="bud-m-v ' + (rateY0 != null && rateY0 > 1 ? 'over' : '') + '">' +
+            (rateY0 != null ? fmtPct(rateY0) : '—') + '</div></div>' +
+        '<div class="bud-m"><div class="bud-m-l">时间进度</div>' +
+          '<div class="bud-m-v">' + fmtPct(tpY0) + '</div></div>' +
+        '<div class="bud-m"><div class="bud-m-l">剩余额度</div>' +
+          '<div class="bud-m-v ' + (budTotal0 != null && usedTotal0 > budTotal0 ? 'over' : '') + '">' +
+            (budTotal0 != null ? fmtGap(budTotal0 - usedTotal0) : '—') + '</div></div>' +
+        '<div class="bud-verdict ' + vd.cls + '">' + vd.txt + '</div>' +
+      '</div>';
+  }
+
+  const linesHtml = years.map(y => {
+    const yRows = RAW.filter(r => String(r.y) === String(y));
+    const mStat = [0,1,2,3,4,5,6,7,8,9,10,11].map(() => ({ used: 0, cnt: 0 }));
+    for (const r of yRows){
+      const mi = r.m - 1;
+      if (mi < 0 || mi > 11) continue;
+      mStat[mi].used += r.amount;
+      mStat[mi].cnt++;
+    }
+    const bud = getBudget(y);
+    const mBud = bud.m;
+    const mSum = mBud.every(v => v == null) ? null : mBud.reduce((s, v) => s + (v || 0), 0);
+    const budTotal = (bud.total != null && bud.total > 0) ? bud.total : mSum;
+    const usedTotal = mStat.reduce((s, a) => s + a.used, 0);
+    const rateY = (budTotal && budTotal > 0) ? usedTotal / budTotal : null;
+    const tpY = yearProgress(y);
+
+    const segs = mBud.map((b, mi) => {
+      const a = mStat[mi];
+      const rate = (b != null && b > 0) ? a.used / b : null;
+      const tipHtml = "<b>" + (mi + 1) + "月</b> · 预算 " +
+        (b != null ? fmtMoney(b) : "未设置") +
+        " · 已发生 " + fmtMoney(a.used) +
+        (rate != null ? " · 执行率 <span class='" + (rate > 1 ? "red" : "") + "'>" + fmtPct(rate) + "</span>" : "");
+      return '<div class="bseg" data-tip="' + esc(tipHtml) + '"></div>';
+    }).join("");
+
+    const expNeedle = (rateY == null || usedTotal <= 0) ? ""
+      : '<div class="cneedle' + (rateY > 1 ? " over" : "") + '" style="left:' +
+        (Math.min(rateY, 1) * 100).toFixed(2) + '%"></div>';
+
+    const timeNeedle = (tpY > 0 && tpY < 1)
+      ? '<div class="tneedle" style="left:' + (tpY * 100).toFixed(2) + '%"></div>'
+      : "";
+
+    const dots = [];
+    for (let i = 1; i < 12; i++){
+      dots.push('<span class="bdot" style="left:' + (i / 12 * 100).toFixed(3) + '%"></span>');
+    }
+
+    const nums = (budTotal != null
+      ? '预算 <b>' + fmtMoney(budTotal) + '</b>'
+      : '<span class="mute">预算未设置</span>') +
+      ' · 已发生 <b>' + fmtMoney(usedTotal) + '</b>' +
+      (rateY != null ? ' · 执行率 <b class="' + (rateY > 1 ? 'over-t' : '') + '">' + fmtPct(rateY) + '</b>' : '') +
+      (tpY > 0 && tpY < 1 ? ' · 时间进度 <b>' + fmtPct(tpY) + '</b>' : '') +
+      (budTotal != null ? ' · ' + fmtGap(budTotal - usedTotal) : '');
+
+    const stateTxt = tpY >= 1 ? ' · <span class="mute">已结束</span>'
+      : (tpY <= 0 ? ' · <span class="mute">未开始</span>' : '');
+
+    const mlabels = '<div class="bline-ml">' +
+      mBud.map((b, mi) => {
+        const overM = (b != null && b > 0 && mStat[mi].used > b);
+        return '<span' + (overM ? ' class="over-t" style="font-weight:600"' : '') + '>' + (mi + 1) + '月</span>';
+      }).join("") +
+    '</div>';
+
+    return '<div class="bline">' +
+      '<div class="bline-h">' +
+        '<span class="bline-y">' + esc(String(y)) + ' 年</span>' +
+        '<span class="bline-nums">' + nums + '</span>' +
+        stateTxt +
+      '</div>' +
+      '<div class="bline-cons">' + expNeedle + '</div>' +
+      '<div class="bline-track">' + segs + dots.join("") + '</div>' +
+      '<div class="bline-time">' + timeNeedle + '</div>' +
+      mlabels +
+    '</div>';
+  }).join("");
+
+  return '<div class="sec">' +
+    '<div class="sec-h">' +
+      '<div class="sec-t">预算执行 <span class="pill">' +
+        (oneYear ? esc(oneYear) + ' 年' : years.length + ' 个年份') + '</span></div>' +
+      '<div class="sec-m" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' +
+        '<button id="btnBudget" style="font-size:12.5px;padding:5px 12px">设置预算</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="sec-b">' + topHtml + linesHtml + '</div>' +
+  '</div>';
+}
+
+function openBudgetModal(scope){
+  scope = (scope === "703" || scope === "764") ? scope : "all";
+  const years = [...new Set(RAW.map(r => String(r.y)))].sort();
+  const initYear = pickBudgetYear() || (years.length ? years[years.length - 1] : String(new Date().getFullYear()));
+  if (!years.includes(initYear)) years.push(initYear);
+
+  const mask = document.createElement("div");
+  mask.className = "mask";
+  mask.id = "budMask";
+  mask.innerHTML =
+    '<div class="modal">' +
+      '<div class="modal-h"><span>设置预算</span><button class="modal-x" id="budClose">×</button></div>' +
+      '<div class="modal-b">' +
+        '<div class="mrow"><label>年份</label><div>' +
+          '<select id="bYearSel" style="width:100%">' +
+            years.map(y => '<option value="' + esc(y) + '"' + (y === initYear ? ' selected' : '') + '>' + esc(y) + ' 年</option>').join("") +
+          '</select></div></div>' +
+        '<div class="mrow"><label>预算对象</label><div>' +
+          '<select id="bScope" style="width:100%">' +
+            '<option value="all"' + (scope === "all" ? ' selected' : '') + '>合计（703 + 764，用于经营概览的预算执行）</option>' +
+            CONFIG.targets.map(t => '<option value="' + esc(t) + '"' + (scope === t ? ' selected' : '') + '>Sub ' + esc(t) + ' 单独预算（用于月度 Sub 的预算进度）</option>').join("") +
+          '</select></div></div>' +
+        '<div class="mrow"><label>年度总额</label><div style="display:flex;gap:8px">' +
+          '<input id="bTotal" type="text" inputmode="decimal" placeholder="留空 = 未设置，也可填 1200万" />' +
+          '<button id="bSplit" style="white-space:nowrap">均分到 12 个月</button>' +
+        '</div></div>' +
+        '<div style="height:1px;background:var(--bd);margin:15px 0 13px"></div>' +
+        '<div class="bmg">' +
+          [0,1,2,3,4,5,6,7,8,9,10,11].map(i =>
+            '<div class="bmg-c"><label>' + (i + 1) + '月</label>' +
+              '<input class="bmIn" data-m="' + i + '" type="text" inputmode="decimal" placeholder="未设置" />' +
+            '</div>'
+          ).join("") +
+        '</div>' +
+        '<div class="diff" id="bDiff"></div>' +
+        '<div class="mask-hint">' +
+          '<b>口径</b>：按下单日期（C 列）归月，金额取税前总金额（U 列）。<br>' +
+          '<b>单位</b>：直接填元，也可填 <code>120万</code>、<code>1,200,000</code>。<br>' +
+          '<b>两套预算互不影响</b>：合计预算只服务经营概览的预算执行；' +
+          'Sub 703 的月度预算只服务月度 Sub 里的「预算进度」，需要单独按月填。' +
+        '</div>' +
+      '</div>' +
+      '<div class="modal-f">' +
+        '<button id="bClearLocal">清空本地设置</button>' +
+        '<button id="bCancel">取消</button>' +
+        '<button id="bSave" class="primary">保存</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(mask);
+
+  fillBudgetForm(initYear, scope);
+
+  $("budClose").onclick = closeBudgetModal;
+  $("bCancel").onclick = closeBudgetModal;
+  mask.addEventListener("click", e => { if (e.target === mask) closeBudgetModal(); });
+
+  $("bYearSel").onchange = () => fillBudgetForm($("bYearSel").value, $("bScope").value);
+  $("bScope").onchange = () => fillBudgetForm($("bYearSel").value, $("bScope").value);
+
+  $("bTotal").addEventListener("input", updateBudDiff);
+  document.querySelectorAll(".bmIn").forEach(inp => inp.addEventListener("input", updateBudDiff));
+
+  $("bSplit").onclick = () => {
+    const t = parseAmt($("bTotal").value);
+    if (t == null || t <= 0){ alert("请先填年度总额，再点均分。"); return; }
+    const base = Math.floor(t / 12);
+    const ms = Array(12).fill(base);
+    ms[11] = t - base * 11;
+    document.querySelectorAll(".bmIn").forEach((inp, i) => inp.value = ms[i]);
+    updateBudDiff();
+  };
+
+  $("bSave").onclick = () => {
+    const y = $("bYearSel").value;
+    const sc = $("bScope").value || "all";
+    const all = loadBudget();
+    const ms = [0,1,2,3,4,5,6,7,8,9,10,11].map(i => parseAmt(document.querySelector('.bmIn[data-m="' + i + '"]').value));
+    let total = parseAmt($("bTotal").value);
+    if (total == null && ms.some(v => v != null)) total = ms.reduce((s, v) => s + (v || 0), 0);
+    const cur = all[y] || { total: null, m: Array(12).fill(null), subs: {} };
+    if (!cur.subs) cur.subs = {};
+    if (sc === "all"){
+      cur.total = total;
+      cur.m = ms;
+    } else {
+      cur.subs[sc] = { total: total, m: ms };
+    }
+    all[y] = cur;
+    saveBudget(all);
+    closeBudgetModal();
+    render();
+  };
+
+  $("bClearLocal").onclick = () => {
+    if (!confirm("清空本机保存的全部预算设置？\n（HTML 里 BUDGET 常量中写死的值仍会生效）")) return;
+    try { localStorage.removeItem(BUDGET_KEY); } catch(e){}
+    __budMem = {};
+    closeBudgetModal();
+    render();
+  };
+}
+
+function closeBudgetModal(){
+  const m = $("budMask");
+  if (m) m.remove();
+}
+
+function fillBudgetForm(year, scope){
+  const b = getBudget(year, scope || "all");
+  $("bTotal").value = b.total == null ? "" : b.total;
+  document.querySelectorAll(".bmIn").forEach((inp, i) => {
+    inp.value = b.m[i] == null ? "" : b.m[i];
+  });
+  updateBudDiff();
+}
+
+function updateBudDiff(){
+  const d = $("bDiff");
+  if (!d) return;
+  const t = parseAmt($("bTotal").value);
+  const sum = [...document.querySelectorAll(".bmIn")]
+    .reduce((s, inp) => s + (parseAmt(inp.value) || 0), 0);
+
+  if (t == null && sum === 0){ d.className = "diff"; d.textContent = ""; return; }
+  if (t == null){
+    d.className = "diff";
+    d.textContent = "月份合计 " + fmtMoneyFull(sum) + "（年度总额留空，保存时按月份合计回填）";
+    return;
+  }
+  const gap = t - sum;
+  if (Math.abs(gap) < 1){
+    d.className = "diff ok";
+    d.textContent = "✓ 月份合计与年度总额一致：" + fmtMoneyFull(t);
+  } else {
+    d.className = "diff bad";
+    d.textContent = "月份合计 " + fmtMoneyFull(sum) + "，与年度总额相差 " + fmtMoneyFull(gap);
+  }
+}
+
+const budTip = document.createElement("div");
+budTip.id = "budTip";
+document.body.appendChild(budTip);
+
+document.addEventListener("mouseover", e => {
+  const t = e.target.closest(".bseg[data-tip]");
+  if (!t){ budTip.style.display = "none"; return; }
+  budTip.innerHTML = t.getAttribute("data-tip");
+  budTip.style.display = "block";
+  const r = t.getBoundingClientRect();
+  let x = r.left + r.width / 2 - budTip.offsetWidth / 2;
+  x = Math.max(8, Math.min(x, window.innerWidth - budTip.offsetWidth - 8));
+  budTip.style.left = x + "px";
+  budTip.style.top = (r.top - budTip.offsetHeight - 8) + "px";
+});
+document.addEventListener("scroll", () => { budTip.style.display = "none"; }, true);
+
+$("btnPick").addEventListener("click", () => $("fileInput").click());
+
+$("fileInput").addEventListener("change", e => {
+  handleFiles(e.target.files);
+  e.target.value = "";
+});
+
+$("btnClear").addEventListener("click", () => {
+  RAW = [];
+  FILE_STATE = [];
+  F.years.clear(); F.months.clear(); F.subs.clear();
+  document.querySelectorAll(".mf").forEach(m => { if (m._mfPaint) m._mfPaint(); });
+  $("notice").innerHTML = "";
+  cacheClear();          // 连上次选的文件缓存一起清掉，下次打开不再自动载入
+  showWelcome();
+});
+
+mfSetup("mfSub", "Sub", "subs", () => CONFIG.targets);
+mfSetup("mfYear", "年份", "years", () => yearOptions());
+mfSetup("mfMonth", "月份", "months", () => ["1","2","3","4","5","6","7","8","9","10","11","12"]);
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (!t) return;
+  const subBtn = t.closest ? t.closest("[data-budget-sub]") : null;
+  if (subBtn){
+    openBudgetModal(subBtn.getAttribute("data-budget-sub"));
+    return;
+  }
+  const moreBtn = t.closest ? t.closest("#btnSupMore") : null;
+  if (moreBtn){ toggleSupMore(moreBtn); return; }
+  if (t.id === "btnBudget" || t.classList.contains("bq-set")){
+    openBudgetModal("all");
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeBudgetModal();
+});
+
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentView = btn.dataset.view;
+    render();
+  });
+});
+
+let dragDepth = 0;
+document.addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; });
+document.addEventListener("dragover",  e => { e.preventDefault(); });
+document.addEventListener("dragleave", e => {
+  e.preventDefault();
+  if (--dragDepth <= 0){ dragDepth = 0; }
+});
+document.addEventListener("drop", e => {
+  e.preventDefault();
+  dragDepth = 0;
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
+    handleFiles(e.dataTransfer.files);
+  }
+});
+
+/* ===== 导出 PPT：把四个页签的完整画面逐页贴进 pptx，保证和页面一致 ===== */
+function pad2(n){ return String(n).padStart(2, "0"); }
+
+// 按板块分页：一个板块尽量完整落在一页，页尾留白可以接受。
+// 只有当某个板块本身就高于一页时，才把它等比切成几页（不会切出几像素的碎页）。
+const PPT_MAX_H_RATIO = 1.1;   // 允许一页比 16:9 理论高度高出 10%，贴图时会轻微缩放，肉眼无差
+
+function packBlockPages(H, sliceH, blocks){
+  const maxH = Math.floor(sliceH * PPT_MAX_H_RATIO);
+  const list = (blocks || [])
+    .filter(b => b && b.bottom > b.top + 1 && b.top < H)
+    .map(b => ({ top: Math.max(0, Math.round(b.top)), bottom: Math.min(H, Math.round(b.bottom)) }))
+    .sort((a, b) => a.top - b.top);
+
+  const pages = [];
+  let cur = null;           // { top, bottom }
+
+  // 只排到最后一个板块的底部，页面底部的空白留白不值得单独出一页
+  const END = list.length ? Math.min(H, list[list.length - 1].bottom + 8) : H;
+  const open = top => { cur = { top: top, bottom: top }; };
+
+  for (const b of list){
+    if (b.bottom <= b.top) continue;
+    if (!cur){
+      // 页面开头：标题区（0 → 本块顶部）+ 本块一起算
+      if (b.bottom <= maxH){ cur = { top: 0, bottom: b.bottom }; continue; }
+      if (b.bottom - b.top <= maxH){
+        pages.push([0, b.top]);
+        cur = { top: b.top, bottom: b.bottom };
+        continue;
+      }
+      pages.push([0, b.top]);
+      const h = b.bottom - b.top;
+      const n = Math.ceil(h / maxH);
+      for (let k = 1; k <= n; k++){
+        const y2 = (k === n) ? b.bottom : Math.round(b.top + h * k / n);
+        pages.push([b.top + Math.round(h * (k - 1) / n), y2]);
+      }
+      open(b.bottom);
+      continue;
+    }
+    if (b.bottom - cur.top <= maxH){       // 还能挤进当前页
+      cur.bottom = b.bottom;
+      continue;
+    }
+    if (b.bottom - b.top <= maxH){         // 本块整块挪到下一页
+      pages.push([cur.top, cur.bottom]);
+      cur = { top: b.top, bottom: b.bottom };
+      continue;
+    }
+    // 本块比一页还高：先收掉当前页，再把本块等比切分
+    if (cur.bottom > cur.top + 4) pages.push([cur.top, cur.bottom]);
+    const h = b.bottom - b.top;
+    const n = Math.ceil(h / maxH);
+    for (let k = 1; k <= n; k++){
+      const y1 = b.top + Math.round(h * (k - 1) / n);
+      const y2 = (k === n) ? b.bottom : b.top + Math.round(h * k / n);
+      pages.push([y1, y2]);
+    }
+    open(b.bottom);
+  }
+
+  if (!cur) cur = { top: 0, bottom: 0 };
+
+  // 收尾：把最后一个板块之后的内容接上
+  if (END > cur.bottom){
+    if (END - cur.top <= maxH){
+      cur.bottom = END;
+    } else {
+      pages.push([cur.top, cur.bottom]);
+      let y = cur.bottom;
+      while (END - y > maxH){
+        pages.push([y, y + maxH]);
+        y += maxH;
+      }
+      cur = { top: y, bottom: END };
+    }
+  }
+  if (cur.bottom > cur.top + 4) pages.push([cur.top, cur.bottom]);
+
+  return pages.filter(([a, b]) => b - a > 8);
+}
+
+// 截图前把带滚动条的表格容器展开，否则只会截到可视区那几行
+function expandScrollables(root){
+  const saved = [];
+  root.querySelectorAll("*").forEach(el => {
+    const cs = getComputedStyle(el);
+    if ((cs.overflowY === "auto" || cs.overflowY === "scroll") && el.scrollHeight > el.clientHeight + 2){
+      saved.push({ el: el, maxHeight: el.style.maxHeight, height: el.style.height, overflow: el.style.overflow });
+      el.style.maxHeight = "none";
+      el.style.height = "auto";
+      el.style.overflow = "visible";
+    }
+  });
+  return saved;
+}
+function restoreScrollables(saved){
+  saved.forEach(s => {
+    s.el.style.maxHeight = s.maxHeight;
+    s.el.style.height = s.height;
+    s.el.style.overflow = s.overflow;
+  });
+}
+
+/* ===== 导出前的板块选择 ===== */
+const PPT_W = 10, PPT_H = 5.625;
+const PPT_SEL_KEY = "ppt_export_sel_v1";
+
+function readPptSel(){
+  try { return JSON.parse(localStorage.getItem(PPT_SEL_KEY) || "null"); } catch(e){ return null; }
+}
+function savePptSel(obj){
+  try { localStorage.setItem(PPT_SEL_KEY, JSON.stringify(obj)); } catch(e){}
+}
+
+// 板块显示名：优先用 .sec-t 标题（保留「Sub 703」这类 pill 文字），否则按类型兜底
+function blockName(el, i){
+  const t = el.querySelector(".sec-t");
+  if (t){
+    const c = t.cloneNode(true);
+    c.querySelectorAll(".sec-note,.sec-btn,.sec-m").forEach(n => n.remove());
+    const s = (c.textContent || "").replace(/\s+/g, " ").trim();
+    if (s) return s;
+  }
+  if (el.querySelector(".age-card")) return "超期账龄分布";
+  if (el.querySelector(".kpi")) return "KPI 卡片";
+  if (el.classList.contains("kpi-grid")) return "KPI 卡片";
+  if (el.querySelector("canvas")) return "图表 " + (i + 1);
+  return "板块 " + (i + 1);
+}
+
+// 依次点开各页签，读出板块清单（只读 DOM 结构，不等图表画完）
+async function collectModules(){
+  const tabs = Array.from(document.querySelectorAll(".tab"));
+  const prevTab = document.querySelector(".tab.active");
+  const prevView = prevTab ? prevTab.dataset.view : "overview";
+  const out = [];
+  for (const tab of tabs){
+    tab.click();
+    await new Promise(r => setTimeout(r, 60));
+    const items = Array.from($("content").children).map((el, i) => ({ i: i, name: blockName(el, i) }));
+    out.push({ view: tab.dataset.view, label: tab.textContent.trim(), items: items });
+  }
+  const back = document.querySelector('.tab[data-view="' + prevView + '"]');
+  if (back) back.click();
+  await new Promise(r => setTimeout(r, 60));
+  return out;
+}
+
+// 板块选择弹窗：返回 { sel, cover } 或 null（取消）
+function openPptPicker(modules, activeLabel){
+  return new Promise(resolve => {
+    const prev = readPptSel();
+    let closed = false;
+
+    const mask = document.createElement("div");
+    mask.className = "mask";
+
+    const viewsHtml = modules.map(m => {
+      // sel：上次勾选的键；seen：上次存在过的全部键。
+      // 没见过的板块（新加的）默认勾上，上次见过但没勾的保持不勾。
+      const savedSel = (prev && prev.sel && Array.isArray(prev.sel[m.view])) ? prev.sel[m.view] : null;
+      const savedSeen = (prev && prev.seen && Array.isArray(prev.seen[m.view])) ? prev.seen[m.view] : null;
+      const items = m.items.map(it => {
+        const key = m.view + "|" + it.i + "|" + it.name;
+        const on = (savedSel && savedSel.indexOf(key) >= 0) ? true
+                 : (savedSeen && savedSeen.indexOf(key) >= 0) ? false
+                 : true;
+        return '<label class="pk-item"><input type="checkbox" data-key="' + esc(key) +
+          '" data-view="' + m.view + '"' + (on ? " checked" : "") + '>' +
+          '<span class="idx">' + (it.i + 1) + "</span><span>" + esc(it.name) + "</span></label>";
+      }).join("");
+      return '<div class="pk-view">' +
+        '<label class="pk-vh" data-view="' + m.view + '">' +
+          '<input type="checkbox" class="pk-all" data-view="' + m.view + '">' +
+          '<span class="nm">' + esc(m.label) + '</span><span class="ct"></span>' +
+        '</label>' +
+        '<div class="pk-list">' + (items || '<div class="pk-item miss">当前筛选下没有内容</div>') + '</div>' +
+      '</div>';
+    }).join("");
+
+    mask.innerHTML =
+      '<div class="modal" style="width:min(700px,100%)">' +
+        '<div class="modal-h"><span>选择要导出的板块</span>' +
+          '<button class="modal-x" id="pkX">×</button></div>' +
+        '<div class="modal-b">' +
+          '<div class="pk-bar">' +
+            '<span>只勾选需要的板块，没勾的不会截图，也不占页数。选择会记住，下次打开沿用。</span>' +
+            '<button id="pkAll">全选</button><button id="pkNone">清空</button>' +
+            '<button id="pkCur">只选「' + esc(activeLabel) + '」</button>' +
+          '</div>' +
+          viewsHtml +
+          '<label class="pk-item" style="margin-top:8px">' +
+            '<input type="checkbox" id="pkCover" checked>' +
+            '<span>包含封面页（标题、筛选条件、导出时间）</span></label>' +
+          '<div class="mask-hint">截图按板块分页：一个板块尽量完整落在一页；' +
+            '单个板块比一页还高时，才在板块内部等比切成几页。</div>' +
+        '</div>' +
+        '<div class="modal-f">' +
+          '<span class="pk-foot-note" id="pkCount"></span>' +
+          '<button id="pkCancel">取消</button>' +
+          '<button id="pkGo" class="primary">生成 PPT</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(mask);
+
+    const allBoxes = () => Array.from(mask.querySelectorAll("input[data-key]"));
+
+    function sync(){
+      mask.querySelectorAll(".pk-vh").forEach(h => {
+        const v = h.dataset.view;
+        const bs = allBoxes().filter(b => b.dataset.view === v);
+        const on = bs.filter(b => b.checked).length;
+        const master = h.querySelector(".pk-all");
+        master.checked = bs.length > 0 && on === bs.length;
+        master.indeterminate = on > 0 && on < bs.length;
+        h.querySelector(".ct").textContent = on + " / " + bs.length + " 个板块";
+      });
+      const n = allBoxes().filter(b => b.checked).length;
+      $("pkCount").textContent = n ? "已选 " + n + " 个板块" : "还没有选任何板块";
+      $("pkGo").disabled = (n === 0);
+    }
+
+    function close(val){
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      if (mask.parentNode) mask.parentNode.removeChild(mask);
+      resolve(val);
+    }
+    function onKey(e){ if (e.key === "Escape") close(null); }
+    document.addEventListener("keydown", onKey);
+
+    mask.addEventListener("click", e => { if (e.target === mask) close(null); });
+    mask.addEventListener("change", e => {
+      const t = e.target;
+      if (t && t.classList.contains("pk-all")){
+        allBoxes().filter(b => b.dataset.view === t.dataset.view).forEach(b => { b.checked = t.checked; });
+      }
+      sync();
+    });
+
+    $("pkX").onclick = () => close(null);
+    $("pkCancel").onclick = () => close(null);
+    $("pkAll").onclick = () => { allBoxes().forEach(b => { b.checked = true; }); sync(); };
+    $("pkNone").onclick = () => { allBoxes().forEach(b => { b.checked = false; }); sync(); };
+    $("pkCur").onclick = () => {
+      const av = document.querySelector(".tab.active");
+      const v = av ? av.dataset.view : "";
+      allBoxes().forEach(b => { b.checked = (b.dataset.view === v); });
+      sync();
+    };
+    $("pkGo").onclick = () => {
+      const sel = {}, seen = {};
+      allBoxes().forEach(b => {
+        const v = b.dataset.view;
+        (seen[v] = seen[v] || []).push(b.dataset.key);
+        if (b.checked) (sel[v] = sel[v] || []).push(b.dataset.key);
+      });
+      // 一个板块都没勾的页签也要记一条空记录，否则下次会被当成「没保存过」而全选
+      Object.keys(seen).forEach(v => { if (!sel[v]) sel[v] = []; });
+      savePptSel({ sel: sel, seen: seen });
+      close({ sel: sel, cover: $("pkCover").checked });
+    };
+
+    sync();
+  });
+}
+
+// 勾选结果 → 板块下标集合；没记录过（新页签）视为全选
+function pickedIndexSet(module, sel){
+  const list = sel[module.view];
+  if (!list) return null;
+  const set = new Set();
+  module.items.forEach(it => {
+    if (list.indexOf(module.view + "|" + it.i + "|" + it.name) >= 0) set.add(it.i);
+  });
+  return set;
+}
+
+function cropCanvas(src, y0, y1){
+  const top = Math.max(0, Math.round(y0));
+  const h = Math.max(1, Math.min(src.height - top, Math.round(y1 - top)));
+  const c = document.createElement("canvas");
+  c.width = src.width;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#f5f7fb";
+  ctx.fillRect(0, 0, c.width, h);
+  ctx.drawImage(src, 0, top, src.width, h, 0, 0, c.width, h);
+  return c;
+}
+
+// 只切勾选的板块：连续勾选的合成一块（中间没勾的不会出现在图里），
+// 第一块带上页面头部（筛选条件、页签）；每块再按板块排页。
+function sliceSelection(src, pageRatio, blocks, pick){
+  const W = src.width, H = src.height;
+  const sliceH = Math.floor(W / pageRatio);
+  if (sliceH <= 0) return [src];
+
+  const chosen = blocks
+    .map((b, i) => ({ i: i, top: Math.max(0, Math.round(b.top)), bottom: Math.min(H, Math.round(b.bottom)) }))
+    .filter(b => b.bottom > b.top + 1 && (!pick || pick.has(b.i)));
+  if (!chosen.length) return [];
+
+  const groups = [];
+  let cur = null;
+  for (const b of chosen){
+    if (cur && b.i === cur.last + 1){
+      cur.last = b.i; cur.bottom = b.bottom; cur.items.push(b);
+    } else {
+      cur = { first: b.i, last: b.i, top: b.top, bottom: b.bottom, items: [b] };
+      groups.push(cur);
+    }
+  }
+
+  const out = [];
+  groups.forEach((g, gi) => {
+    // 第一组从板块 1 开始时才带页面头部，否则只截板块本身，避免出现只有一截头部的空页
+    const y0 = (gi === 0 && g.first === 0) ? 0 : Math.max(0, g.top - 10);
+    const y1 = Math.min(H, g.bottom + 10);
+    if (y1 - y0 <= 10) return;
+    const piece = cropCanvas(src, y0, y1);
+    const inner = g.items.map(b => ({ top: b.top - y0, bottom: b.bottom - y0 }));
+    let cuts = packBlockPages(piece.height, sliceH, inner);
+    if (!cuts.length) cuts = [[0, piece.height]];
+    cuts.forEach(c => out.push(cropCanvas(piece, c[0], c[1])));
+  });
+  return out;
+}
+
+async function exportPpt(){
+  const btn = $("btnExportPpt");
+  if (!RAW.length){ alert("还没有数据。请先加载 Excel，再导出 PPT。"); return; }
+  if (typeof PptxGenJS === "undefined" || typeof html2canvas === "undefined"){
+    alert("导出组件没有加载成功，可能是网络不通或 CDN 被拦截。请联网后刷新页面再试。");
+    return;
+  }
+
+  const oldLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "正在读取板块…";
+  let modules;
+  try {
+    modules = await collectModules();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+  }
+
+  const av = document.querySelector(".tab.active");
+  const choice = await openPptPicker(modules, av ? av.textContent.trim() : "当前页签");
+  if (!choice) return;
+
+  await runExport(modules, choice.sel, choice.cover);
+}
+
+async function runExport(modules, sel, withCover){
+  const btn = $("btnExportPpt");
+  const oldLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "正在生成…";
+
+  const prevScroll = window.scrollY;
+  const prevTab = document.querySelector(".tab.active");
+  const prevView = prevTab ? prevTab.dataset.view : "overview";
+  const prevAnim = Chart.defaults.animation;
+  Chart.defaults.animation = false;   // 关动画，保证截图时图表已经画完
+
+  const shots = [];
+  try {
+    window.scrollTo(0, 0);
+    for (const m of modules){
+      const pick = pickedIndexSet(m, sel);
+      if (pick && pick.size === 0) continue;              // 这个页签没勾任何板块，整页跳过
+      const tab = document.querySelector('.tab[data-view="' + m.view + '"]');
+      if (!tab) continue;
+      tab.click();
+      await new Promise(r => setTimeout(r, 320));   // 等延迟绘制的饼图/环图完成
+      const wrap = document.querySelector(".wrap");
+      const expanded = expandScrollables(wrap);
+      let canvas;
+      let blocks = [];
+      try {
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        canvas = await html2canvas(wrap, {
+          backgroundColor: "#f5f7fb",
+          scale: Math.min(2, Math.max(1.5, window.devicePixelRatio || 1)),
+          useCORS: true,
+          logging: false,
+          windowWidth: document.documentElement.clientWidth
+        });
+        // 记录每个板块（#content 的直接子元素）在截图里的上下边界，供分页用
+        const wrapRect = wrap.getBoundingClientRect();
+        const ky = wrapRect.height > 0 ? canvas.height / wrapRect.height : 1;
+        const contentEl = $("content");
+        blocks = Array.from(contentEl.children).map(el => {
+          const r = el.getBoundingClientRect();
+          return {
+            top: (r.top - wrapRect.top) * ky,
+            bottom: (r.bottom - wrapRect.top) * ky
+          };
+        });
+      } finally {
+        restoreScrollables(expanded);
+      }
+      const pages = sliceSelection(canvas, PPT_W / PPT_H, blocks, pick);
+      if (pages.length) shots.push({ label: m.label, pages: pages });
+    }
+  } catch (e){
+    alert("截图失败：" + ((e && e.message) || e) + "\n可以先把过长的表格收起，再试一次。");
+    return;
+  } finally {
+    Chart.defaults.animation = prevAnim;
+    const back = document.querySelector('.tab[data-view="' + prevView + '"]');
+    if (back) back.click();
+    window.scrollTo(0, prevScroll);
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+  }
+
+  if (!shots.length){
+    alert("没有可导出的板块。请重新打开「导出 PPT」，至少勾选一个板块。");
+    return;
+  }
+
+  const pptx = new PptxGenJS();
+  pptx.layout = "LAYOUT_16x9";
+  const PW = PPT_W, PH = PPT_H;
+
+  if (withCover){
+    const cover = pptx.addSlide();
+    cover.background = { color: "F5F7FB" };
+    cover.addText("Procurement Data Dashboard-JinShan", { x: 0.7, y: 1.5, w: 8.6, h: 0.9, fontSize: 36, bold: true, color: "1F2937" });
+    cover.addText($("sub").textContent || "", { x: 0.72, y: 2.45, w: 8.6, h: 0.6, fontSize: 13, color: "5B6472" });
+    cover.addText("导出时间 " + new Date().toLocaleString("zh-CN"), { x: 0.72, y: 3.05, w: 8.6, h: 0.4, fontSize: 11, color: "8B95A5" });
+    cover.addText("口径：Sub 703 / 764，金额取税前总金额（U 列）", { x: 0.72, y: 3.45, w: 8.6, h: 0.4, fontSize: 10.5, color: "9AA3B5" });
+    cover.addText(brandRuns("5B6472"), { x: 0.72, y: 4.75, w: 8.6, h: 0.3, fontSize: 11 });
+  }
+
+  for (const shot of shots){
+    const pages = shot.pages;
+    pages.forEach((c, i) => {
+      const slide = pptx.addSlide();
+      slide.background = { color: "F5F7FB" };
+      const ratio = c.width / c.height;
+      let w = PW - 0.4, h = w / ratio;
+      if (h > PH - 0.45){ h = PH - 0.45; w = h * ratio; }
+      slide.addImage({
+        data: c.toDataURL("image/png"),
+        x: (PW - w) / 2, y: Math.max(0.08, (PH - h) / 2 - 0.1), w: w, h: h
+      });
+      slide.addText(shot.label + (pages.length > 1 ? " · " + (i + 1) + "/" + pages.length : ""),
+        { x: 0.22, y: PH - 0.3, w: 4, h: 0.24, fontSize: 8, color: "9AA3B5" });
+      slide.addText(brandRuns("9AA3B5"), { x: PW - 3.3, y: PH - 0.3, w: 3.1, h: 0.24, fontSize: 8,
+        align: "right" });
+    });
+  }
+
+  const d = new Date();
+  const fileName = "Procurement_Data_Dashboard_JinShan_" + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) +
+                   "_" + pad2(d.getHours()) + pad2(d.getMinutes()) + ".pptx";
+  await pptx.writeFile({ fileName: fileName });
+}
+
+$("btnExportPpt").addEventListener("click", exportPpt);
+
+(async function boot(){
+  // ① 优先：按 CONFIG.files 从同目录/站点自动读（http(s) 环境，永远是最新文件）
+  const r = await autoLoadFiles();
+  if (r === true) return;
+
+  // ② 其次：上次手动选过的文件（读本地字节缓存），双击打开也能直接出数
+  if (loadCachedFiles()) return;
+
+  // ③ 都没有：欢迎页 + 手动选择
+  showWelcome();
+  if (typeof r === "string") $("notice").innerHTML = r;
+})();
+</script>
+
+<!-- 导出 PPT 用的两个库：只有点「导出 PPT」时才用到，放最后不拖慢首屏 -->
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+</body>
+</html>
